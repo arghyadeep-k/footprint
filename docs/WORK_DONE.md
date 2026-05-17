@@ -1,0 +1,638 @@
+# WORK_DONE
+
+## 2026-05-16
+
+- Bootstrapped Android project `Footprint` with module `:app`.
+- Configured Kotlin + Jetpack Compose + Material 3 foundation.
+- Set package/application ID and namespace to `com.footprint.app`.
+- Set Android SDK levels: `minSdk 26`, `compileSdk 35`, `targetSdk 35`.
+- Added baseline Compose app entry point in `MainActivity`.
+- Added Material 3 theme scaffolding under `ui/theme`.
+- Created requested package structure under `com.footprint.app`:
+  - `data`
+  - `location`
+  - `map`
+  - `timeline`
+  - `ui`
+- Added package-level placeholder READMEs to clarify intended responsibilities.
+- Added project documentation files for resumable progress:
+  - `docs/WORK_DONE.md`
+  - `docs/NEXT_STEPS.md`
+- Added dependency catalog and app wiring for:
+  - Google Maps Compose
+  - Google Play Services Maps
+  - Google Play Services Location (Fused Location Provider)
+  - Room (runtime, KTX, KSP compiler)
+  - Kotlin Coroutines (core + Android)
+  - DataStore Preferences
+  - Lifecycle Runtime Compose
+- Enabled KSP plugin in project and app Gradle configuration for Room code generation.
+- Updated `AndroidManifest.xml` with location/history app permissions:
+  - `ACCESS_COARSE_LOCATION`
+  - `ACCESS_FINE_LOCATION`
+  - `ACCESS_BACKGROUND_LOCATION`
+  - `FOREGROUND_SERVICE`
+  - `FOREGROUND_SERVICE_LOCATION` (API 34+)
+  - `POST_NOTIFICATIONS` (API 33+)
+- Added foreground service declaration with `android:foregroundServiceType=\"location\"`.
+- Added placeholder `LocationTrackingService` in `com.footprint.app.location` (no tracking logic).
+- Added explicit comments documenting that background location should only be requested after user-facing rationale.
+- Attempted build verification with `./gradlew :app:assembleDebug`, but wrapper is not yet present in repo (`./gradlew` missing).
+- Implemented Room local data layer foundation:
+  - Added `LocationPoint` entity with all requested fields and Room table mapping.
+  - Added `LocationPointDao` with methods to insert single/multiple points, query by time range, query all by time, delete old points, and delete all points.
+  - Added `FootprintDatabase` with `LocationPoint` entity registration and DAO accessor.
+  - Added `LocationRepository` to provide a clean data access boundary over DAO operations.
+- Added unit-testable pure helper functions in `LocationPointHelpers` for:
+  - Battery percent clamping
+  - Optional/required text normalization
+  - Time-window normalization
+- Updated repository behavior to sanitize location metadata (`provider`, `batteryPercent`, `trackingMode`, `source`) before persistence.
+- Files added:
+  - `app/src/main/java/com/footprint/app/data/local/LocationPoint.kt`
+  - `app/src/main/java/com/footprint/app/data/local/LocationPointDao.kt`
+  - `app/src/main/java/com/footprint/app/data/local/FootprintDatabase.kt`
+  - `app/src/main/java/com/footprint/app/data/LocationRepository.kt`
+  - `app/src/main/java/com/footprint/app/data/LocationPointHelpers.kt`
+- Build verification attempted again with `./gradlew :app:assembleDebug`; still blocked because Gradle wrapper files are not present in repository.
+- Refined service-backed tracking state implementation to cover unrecoverable errors and improve UI mapping testability:
+  - Added `TrackingStateUiMapper` helper for mapping `TrackingState` to UI labels:
+    - status label mapping
+    - effective mode label mapping
+  - Updated `HomeScreen` tracking status card to use `TrackingStateUiMapper` instead of inline/local mapping logic.
+- Extended `LocationTrackingService` tracking-state updates for unrecoverable error handling:
+  - wraps service command handling in `onStartCommand` with error reporting path
+  - reports `ERROR` state on unrecoverable failures including:
+    - command handling failure
+    - location request failure (non-security throwable path)
+    - persistence/write failure while saving location points
+  - preserves terminal non-stopped states (`PERMISSION_MISSING` / `ERROR`) across service destroy using `stateOnDestroy`.
+  - continues writing runtime state for:
+    - start (`RUNNING` + effective mode)
+    - stop (`STOPPED`)
+    - destroy (last known terminal/runtime state)
+    - permission-missing
+    - effective mode changes (via request recreation)
+- Added unit-testable helper coverage:
+  - `TrackingStateUiMapperTest` for status and effective-mode label mapping.
+- Files added:
+  - `app/src/main/java/com/footprint/app/location/TrackingStateUiMapper.kt`
+  - `app/src/test/java/com/footprint/app/location/TrackingStateUiMapperTest.kt`
+- Files updated:
+  - `app/src/main/java/com/footprint/app/location/LocationTrackingService.kt`
+  - `app/src/main/java/com/footprint/app/ui/HomeScreen.kt`
+- Build verification:
+  - Ran `./gradlew :app:assembleDebug`
+  - Result: `BUILD SUCCESSFUL`
+- Replaced temporary in-memory tracking status flag with observable service-backed tracking state:
+  - Added `TrackingState` model with required states:
+    - `STOPPED`
+    - `RUNNING`
+    - `PERMISSION_MISSING`
+    - `ERROR`
+  - Added optional `effectiveMode` in tracking state for:
+    - `LOW_POWER`
+    - `BALANCED`
+    - `ACTIVE`
+  - Added `TrackingRuntimeStateStore` (DataStore-backed) to persist and observe runtime tracking state locally.
+- Updated `LocationTrackingService` to write tracking state transitions:
+  - writes `RUNNING` with current effective mode when tracking request starts
+  - writes `STOPPED` when tracking stops
+  - writes `STOPPED` on service destroy
+  - writes `PERMISSION_MISSING` when start is attempted without required permission
+  - writes `ERROR` on request/update permission failure path
+  - writes updated `RUNNING` effective mode when adaptive mode changes and location updates are recreated
+- Updated UI to consume observable tracking state instead of local boolean:
+  - `MainActivity` now observes `trackingStateFlow` from `TrackingRuntimeStateStore`
+  - `HomeScreen` tracking status card now renders from `TrackingState` and shows effective mode from service-backed state
+  - start/stop button actions no longer mutate a temporary in-memory tracking-active flag
+- Confirmed preferred mode vs effective mode separation:
+  - `SettingsScreen` still controls preferred mode through `TrackingPreferencesStore`
+  - `HomeScreen` continues to show preferred mode separately in Tracking card
+  - status card shows effective mode from runtime service state
+- Files added:
+  - `app/src/main/java/com/footprint/app/location/TrackingState.kt`
+  - `app/src/main/java/com/footprint/app/data/TrackingRuntimeStateStore.kt`
+- Files updated:
+  - `app/src/main/java/com/footprint/app/location/LocationTrackingService.kt`
+  - `app/src/main/java/com/footprint/app/MainActivity.kt`
+  - `app/src/main/java/com/footprint/app/ui/HomeScreen.kt`
+- Build verification:
+  - Ran `./gradlew :app:assembleDebug`
+  - Result: `BUILD SUCCESSFUL`
+- Replaced temporary in-memory screen switching with Navigation Compose:
+  - Added Navigation Compose dependency to app module.
+  - Added centralized route constants in `AppRoutes`:
+    - `permissions`
+    - `home`
+    - `settings`
+    - `privacy`
+  - Refactored `MainActivity` to use `NavHost` + composable destinations instead of manual `when (currentScreen)` switching.
+  - Preserved existing behavior:
+    - permission explanation flow still requests foreground location and can continue to home
+    - home can open settings
+    - home can open privacy/data controls
+    - settings supports back navigation
+    - privacy supports back navigation
+  - Kept dependency/repository creation simple in `FootprintApp` (no new DI framework).
+  - Improved state survivability for important UI state during recomposition/navigation by using `rememberSaveable` for:
+    - tracking active flag
+    - data refresh key
+    - foreground permission flag
+- Files added:
+  - `app/src/main/java/com/footprint/app/ui/AppRoutes.kt`
+- Files updated:
+  - `gradle/libs.versions.toml`
+  - `app/build.gradle.kts`
+  - `app/src/main/java/com/footprint/app/MainActivity.kt`
+- Build verification:
+  - Ran `./gradlew :app:assembleDebug`
+  - Result: `BUILD SUCCESSFUL`
+- Resolved Gradle wrapper/build blocker end-to-end:
+  - Generated/added Gradle wrapper artifacts:
+    - `gradlew`
+    - `gradlew.bat`
+    - `gradle/wrapper/gradle-wrapper.jar`
+    - `gradle/wrapper/gradle-wrapper.properties`
+  - Set wrapper distribution to `gradle-8.10.2-bin.zip` (compatible with AGP `8.7.3` and Kotlin `2.0.21` setup).
+  - Installed missing toolchain/runtime prerequisites in environment:
+    - installed `openjdk-21-jdk-headless` (to provide `javac`)
+    - configured Gradle to use JDK via `org.gradle.java.home=/usr/lib/jvm/java-21-openjdk-amd64` in `gradle.properties`
+  - Installed Android SDK tooling/components in environment and configured project SDK path:
+    - Android command-line tools
+    - `platforms;android-35`
+    - `build-tools;35.0.0` (plus auto-installed `build-tools;34.0.0` during first build)
+    - `platform-tools`
+    - created `local.properties` with `sdk.dir=/tmp/android-sdk`
+- Fixed first-sync/compile/resource issues encountered during build:
+  - Fixed Material theme resource linking failures by:
+    - adding Material Components dependency `com.google.android.material:material:1.12.0`
+    - switching app theme parent to `Theme.Material3.DayNight`
+  - Fixed Kotlin compile errors:
+    - replaced invalid `ZonedDateTime.toEpochMilli()` calls with `toInstant().toEpochMilli()` in `TimelineCalculator`
+    - replaced invalid `Modifier.weight(...)` usage in custom date picker with full-width buttons
+- Build verification now passes:
+  - `./gradlew :app:assembleDebug`
+  - Result: `BUILD SUCCESSFUL`
+- Added local timeline export functionality (no upload/sync):
+  - Implemented `TimelineExportFormatter` for:
+    - CSV export
+    - GeoJSON export
+  - Exported fields:
+    - `latitude`
+    - `longitude`
+    - `accuracy`
+    - `recorded timestamp`
+    - `tracking mode`
+- Added Android document-create flow for user-selected save destination:
+  - `CreateDocument("text/csv")` for CSV
+  - `CreateDocument("application/geo+json")` for GeoJSON
+  - Writes export bytes directly to selected local URI via `ContentResolver`.
+- Added export controls to the timeline stats section:
+  - `Export CSV`
+  - `Export GeoJSON`
+  - Exports current selected timeline dataset only.
+- Files added:
+  - `app/src/main/java/com/footprint/app/data/export/TimelineExportFormatter.kt`
+- Files updated:
+  - `app/src/main/java/com/footprint/app/ui/HomeScreen.kt`
+- Build verification attempted again with `./gradlew :app:assembleDebug`; still blocked because Gradle wrapper files are not present in repository.
+- Added first privacy and data-controls flow:
+  - Created `PrivacyScreen` with local privacy messaging:
+    - explicitly states location history is stored locally on-device
+    - explicitly notes background location can be disabled in Android settings
+  - Added pause tracking control in privacy screen.
+  - Added destructive data controls:
+    - delete all location history
+    - delete history older than 30 days
+  - Added confirmation dialogs before each deletion action.
+- Integrated privacy flow into app navigation/state:
+  - Added `Privacy` route in `MainActivity`.
+  - Wired privacy actions to repository + tracking controller:
+    - pause tracking uses service stop action
+    - delete operations call `LocationRepository.deleteAllPoints()` and `deletePointsOlderThan(...)`
+  - Added `dataRefreshKey` to trigger timeline/map reloads after deletion.
+- Added visible tracking status indicator on Home screen:
+  - `Tracking is active` or `Tracking is paused` status card.
+  - Home now exposes a `Privacy & data controls` button to open privacy screen.
+- Files added:
+  - `app/src/main/java/com/footprint/app/ui/PrivacyScreen.kt`
+- Files updated:
+  - `app/src/main/java/com/footprint/app/MainActivity.kt`
+  - `app/src/main/java/com/footprint/app/ui/HomeScreen.kt`
+- Build verification attempted again with `./gradlew :app:assembleDebug`; still blocked because Gradle wrapper files are not present in repository.
+- Added first local "places visited" detection implementation:
+  - Created `VisitSegment` model with:
+    - approximate cluster latitude/longitude
+    - arrival time
+    - departure time
+    - duration
+    - point count
+  - Added `VisitDetector` with simple local clustering rules:
+    - stationary radius: `100 meters`
+    - minimum duration: `10 minutes`
+  - Detection runs over timeline-filtered points and returns qualifying visit segments.
+- Updated map visualization to show detected visits as markers:
+  - `MapScreen` now accepts `visitSegments` and renders a marker for each detected place.
+- Added places list UI section:
+  - Displays for each detected place:
+    - approximate latitude/longitude
+    - arrival time
+    - departure time
+    - duration
+  - Kept implementation local/simple without reverse geocoding.
+- Added visit detector unit test coverage for minimum-duration stationary cluster detection.
+- Files added:
+  - `app/src/main/java/com/footprint/app/timeline/VisitSegment.kt`
+  - `app/src/main/java/com/footprint/app/timeline/VisitDetector.kt`
+  - `app/src/test/java/com/footprint/app/timeline/VisitDetectorTest.kt`
+- Files updated:
+  - `app/src/main/java/com/footprint/app/map/MapScreen.kt`
+  - `app/src/main/java/com/footprint/app/ui/HomeScreen.kt`
+- Build verification attempted again with `./gradlew :app:assembleDebug`; still blocked because Gradle wrapper files are not present in repository.
+- Built the real timeline selector UI and range-driven map refresh flow:
+  - Added timeline options:
+    - `Today`
+    - `This Week`
+    - `This Month`
+    - `This Year`
+    - `Lifetime`
+    - `Custom`
+  - Timeline changes now reload `LocationPoint` records from `LocationRepository` and redraw the map polyline.
+  - Implemented `Custom` range date selection with start/end `DatePickerDialog` controls.
+- Added timeline stats for selected range:
+  - Number of saved points
+  - Approximate distance traveled
+  - First recorded time
+  - Last recorded time
+- Added Haversine-based distance calculation utility:
+  - `DistanceCalculator.totalDistanceMeters(points)` for route distance aggregation.
+- Refactored map rendering data flow:
+  - `HomeScreen` now owns selected timeline range + loaded points.
+  - `MapScreen` now receives points directly and renders/thins route + camera fitting from provided data.
+- Added distance helper unit test.
+- Files added:
+  - `app/src/main/java/com/footprint/app/timeline/DistanceCalculator.kt`
+  - `app/src/test/java/com/footprint/app/timeline/DistanceCalculatorTest.kt`
+- Files updated:
+  - `app/src/main/java/com/footprint/app/ui/HomeScreen.kt`
+  - `app/src/main/java/com/footprint/app/map/MapScreen.kt`
+- Build verification attempted again with `./gradlew :app:assembleDebug`; still blocked because Gradle wrapper files are not present in repository.
+- Implemented first Google Maps Compose route visualization:
+  - Added `MapScreen` to display `GoogleMap` in the Home screen map section.
+  - Loads `LocationPoint` records for the selected `TimelineRange` via `LocationRepository.getPointsForTimelineRange(...)`.
+  - Converts saved points to `LatLng`.
+  - Draws traveled path with a `Polyline`.
+  - Moves camera to fit route bounds when points exist.
+  - Handles single-point routes with a direct camera zoom.
+  - Shows a friendly empty state when no points exist for selected timeline.
+- Implemented polyline point-thinning helper to avoid rendering very large raw routes:
+  - Added `PolylineThinner` with basic distance-based thinning.
+  - Always keeps first and last points.
+  - Skips points closer than configured threshold.
+  - Adds max-point cap sampling fallback to prevent rendering thousands of vertices directly.
+  - Uses timeline-dependent thinning thresholds for map detail balance.
+- Updated Home UI timeline/map integration:
+  - Timeline selector now tracks `TimelineRange` values instead of plain strings.
+  - Map card now renders `MapScreen` (replacing placeholder box).
+  - Home receives shared `LocationRepository` instance from `MainActivity`.
+- Added map helper test:
+  - `PolylineThinnerTest` verifies first/last preservation and close-point skipping.
+- Files added:
+  - `app/src/main/java/com/footprint/app/map/MapScreen.kt`
+  - `app/src/main/java/com/footprint/app/map/PolylineThinner.kt`
+  - `app/src/test/java/com/footprint/app/map/PolylineThinnerTest.kt`
+- Files updated:
+  - `app/src/main/java/com/footprint/app/ui/HomeScreen.kt`
+  - `app/src/main/java/com/footprint/app/MainActivity.kt`
+- Build verification attempted again with `./gradlew :app:assembleDebug`; still blocked because Gradle wrapper files are not present in repository.
+- Improved `LocationTrackingService` with low-power adaptive tracking modes:
+  - Added `TrackingMode` model with:
+    - `LOW_POWER`
+    - `BALANCED`
+    - `ACTIVE`
+  - Added per-mode request profiles:
+    - `LOW_POWER`: longer interval, balanced-power priority
+    - `BALANCED`: medium interval, balanced-power priority
+    - `ACTIVE`: shorter interval, high accuracy
+  - Added adaptive movement logic:
+    - If new points are close to last saved point, service favors/stays `LOW_POWER`.
+    - If movement is meaningful, service uses `BALANCED`.
+    - `ACTIVE` remains active only when explicitly selected by user preference.
+  - Added runtime mode reconfiguration:
+    - Service removes existing location updates and recreates request when effective mode changes.
+    - Service also recreates request when DataStore preference changes during active tracking.
+- Added tracking mode preference persistence in DataStore:
+  - `TrackingPreferencesStore` with `trackingModeFlow` and `setTrackingMode(...)`.
+- Added first Settings UI screen for tracking profile selection:
+  - User options:
+    - Battery saver tracking
+    - Balanced tracking
+    - Active trip tracking
+  - Selection persists via DataStore.
+- Updated app flow and home UI:
+  - Added `Settings` screen route in `MainActivity`.
+  - Home now shows current selected tracking mode and a button to open tracking settings.
+- Added/updated tests:
+  - Extended `LocationTrackingPolicyTest` to verify adaptive mode transitions for low-power/balanced/active rules.
+- Files added:
+  - `app/src/main/java/com/footprint/app/location/TrackingMode.kt`
+  - `app/src/main/java/com/footprint/app/data/TrackingPreferencesStore.kt`
+  - `app/src/main/java/com/footprint/app/ui/SettingsScreen.kt`
+- Files updated:
+  - `app/src/main/java/com/footprint/app/location/LocationTrackingService.kt`
+  - `app/src/main/java/com/footprint/app/location/LocationTrackingPolicy.kt`
+  - `app/src/main/java/com/footprint/app/ui/HomeScreen.kt`
+  - `app/src/main/java/com/footprint/app/MainActivity.kt`
+  - `app/src/test/java/com/footprint/app/location/LocationTrackingPolicyTest.kt`
+- Build verification attempted again with `./gradlew :app:assembleDebug`; still blocked because Gradle wrapper files are not present in repository.
+- Implemented functional foreground location tracking service foundation:
+  - Replaced placeholder `LocationTrackingService` with a working foreground service using `FusedLocationProviderClient`.
+  - Added service start/stop intent actions:
+    - `com.footprint.app.action.START_TRACKING`
+    - `com.footprint.app.action.STOP_TRACKING`
+  - Added conservative default location request settings:
+    - Priority: balanced power accuracy
+    - Interval: 5 minutes
+    - Min update interval: 1 minute
+    - Min distance: 50 meters
+  - Added persistent foreground notification with user text:
+    - `Footprint is recording`
+    - `Footprint is recording travel history.`
+  - Added Android O+ notification channel setup for tracking notifications.
+  - Added save pipeline from location updates into Room via `LocationRepository`.
+  - Added location quality/duplicate filtering policy:
+    - Avoids near-duplicate points in time + distance.
+    - Ignores very poor accuracy points once better/any points have already been saved.
+    - Still allows poor-accuracy point when it is the only available point.
+  - Added safe stop behavior:
+    - Removes location updates on stop/destroy.
+    - Stops foreground state and service instance.
+  - Added `TrackingController` helper for UI start/stop control.
+  - Added app-level Room database provider singleton for service repository access.
+  - Added notification icon resource for service notification.
+  - Added policy unit tests for duplicate and poor-accuracy filtering behavior.
+- Files added:
+  - `app/src/main/java/com/footprint/app/data/local/FootprintDatabaseProvider.kt`
+  - `app/src/main/java/com/footprint/app/location/TrackingController.kt`
+  - `app/src/main/java/com/footprint/app/location/LocationTrackingPolicy.kt`
+  - `app/src/main/res/drawable/ic_notification.xml`
+  - `app/src/test/java/com/footprint/app/location/LocationTrackingPolicyTest.kt`
+- Files updated:
+  - `app/src/main/java/com/footprint/app/location/LocationTrackingService.kt`
+  - `app/src/main/java/com/footprint/app/MainActivity.kt`
+  - `app/src/main/java/com/footprint/app/ui/HomeScreen.kt`
+- Build verification attempted again with `./gradlew :app:assembleDebug`; still blocked because Gradle wrapper files are not present in repository.
+- Implemented first-pass Jetpack Compose UI flow for app foundation:
+  - Added `PermissionExplanationScreen` with clear user-facing wording that Footprint uses location history to draw the user's travel line on a map.
+  - Added staged permission flow logic that requests foreground location first (`ACCESS_COARSE_LOCATION`/`ACCESS_FINE_LOCATION`) and only then shows the background location explanation section.
+  - Added button to open Android app settings for background location access guidance.
+  - Added `HomeScreen` as the first app home with placeholders for timeline + map.
+  - Added placeholder map section text: `Your travel map will appear here.`
+  - Added placeholder timeline selector options: `Today`, `This Week`, `This Month`, `Lifetime`, `Custom`.
+  - Added simple in-app screen switching between permission screen and home screen.
+- Files added:
+  - `app/src/main/java/com/footprint/app/ui/PermissionExplanationScreen.kt`
+  - `app/src/main/java/com/footprint/app/ui/HomeScreen.kt`
+- Files updated:
+  - `app/src/main/java/com/footprint/app/MainActivity.kt`
+- Build verification attempted again with `./gradlew :app:assembleDebug`; still blocked because Gradle wrapper files are not present in repository.
+- Implemented timeline filtering domain and calculator:
+  - Added `TimelineRange` model supporting `Today`, `Yesterday`, `ThisWeek`, `ThisMonth`, `ThisYear`, `Lifetime`, and `Custom(start/end)`.
+  - Added timezone-aware `TimelineCalculator` that returns start/end epoch millis for each timeline range based on device timezone.
+  - Added `TimelineWindow` model to carry computed epoch range bounds.
+- Added repository timeline query method:
+  - `LocationRepository.getPointsForTimelineRange(range, nowEpochMillis, zoneId)`
+  - Uses `TimelineCalculator` for bounded ranges and falls back to full ordered query for `Lifetime`.
+- Added timeline unit tests for requested cases:
+  - `today`
+  - `this week`
+  - `this month`
+  - `custom range` normalization
+- Files added:
+  - `app/src/main/java/com/footprint/app/timeline/TimelineRange.kt`
+  - `app/src/main/java/com/footprint/app/timeline/TimelineCalculator.kt`
+  - `app/src/test/java/com/footprint/app/timeline/TimelineCalculatorTest.kt`
+- Files updated:
+  - `app/src/main/java/com/footprint/app/data/LocationRepository.kt`
+- Build verification attempted again with `./gradlew :app:assembleDebug`; still blocked because Gradle wrapper files are not present in repository.
+
+## Operational Note
+
+Every future task must update both `docs/WORK_DONE.md` and `docs/NEXT_STEPS.md` to preserve recoverable project context.
+
+## 2026-05-16 (Verification Pass)
+
+- Re-read `docs/WORK_DONE.md` and `docs/NEXT_STEPS.md` before implementation as requested.
+- Verified the service-backed tracking state implementation is present and wired end-to-end:
+  - `TrackingState` includes `STOPPED`, `RUNNING`, `PERMISSION_MISSING`, `ERROR`.
+  - Runtime tracking state persistence uses `TrackingRuntimeStateStore` (DataStore-backed).
+  - `LocationTrackingService` writes state updates on start/stop/destroy, permission-missing, effective mode change, and unrecoverable error paths.
+  - `HomeScreen` consumes observed persisted tracking state (not temporary in-memory boolean).
+  - `SettingsScreen` continues to control preferred tracking mode separately from service effective mode.
+  - `TrackingStateUiMapper` and `TrackingStateUiMapperTest` exist for UI text mapping helper logic.
+- No additional code changes were required because the requested functionality already existed and matched requirements.
+- Build verification:
+  - Ran `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 GRADLE_USER_HOME=/tmp/.gradle ./gradlew :app:assembleDebug`
+  - Result: `BUILD SUCCESSFUL`
+
+## 2026-05-16 (Permission UX Hardening)
+
+- Re-read `docs/WORK_DONE.md` and `docs/NEXT_STEPS.md` before implementation as requested.
+- Hardened permission UX to cover staged and version-aware states without adding unrelated features.
+- Added centralized permission UI state + status model:
+  - `PermissionUiState` with state coverage for:
+    - foreground not requested
+    - foreground granted
+    - foreground denied
+    - foreground permanently denied
+    - background not granted/granted
+    - notification not granted/granted (Android 13+)
+    - all required permissions ready
+  - `ForegroundPermissionStatus` enum
+  - `PermissionUiTextMapper` helper for user-facing foreground status labels
+- Refined `PermissionExplanationScreen` flow and wording:
+  - Keeps staged order:
+    - explain location purpose
+    - request foreground location
+    - then explain background access
+    - guide to app settings for background location
+    - request notification permission separately on Android 13+
+  - Does not request background location at the same time as foreground location.
+  - Added Android-version-specific messaging:
+    - Android 10+ background location settings behavior
+    - Android 13+ notification permission
+    - Android 14+ ongoing foreground service location expectation context
+  - Added clear denied/permanently denied labels.
+  - Added open-app-settings action for permanently denied foreground permission.
+  - Continue button now requires all required permissions ready.
+- Updated `MainActivity` permission orchestration:
+  - Tracks permission-requested and rationale state to distinguish denied vs permanently denied.
+  - Adds explicit checks for:
+    - foreground location
+    - background location (Android 10+)
+    - notifications (Android 13+)
+  - Adds separate notification permission launcher.
+  - Builds and passes `PermissionUiState` into `PermissionExplanationScreen`.
+- Hardened Home start-tracking behavior:
+  - `HomeScreen` receives `canStartTracking`.
+  - Start tracking button is disabled when required permissions are missing.
+  - Added explanatory text in Tracking card when start is blocked.
+  - Start action in `MainActivity` now routes back to permission flow when requirements are missing.
+- Added unit tests for pure helper logic:
+  - `PermissionUiTextMapperTest`
+- Files added:
+  - `app/src/main/java/com/footprint/app/ui/PermissionUiState.kt`
+  - `app/src/test/java/com/footprint/app/ui/PermissionUiTextMapperTest.kt`
+- Files updated:
+  - `app/src/main/java/com/footprint/app/ui/PermissionExplanationScreen.kt`
+  - `app/src/main/java/com/footprint/app/MainActivity.kt`
+  - `app/src/main/java/com/footprint/app/ui/HomeScreen.kt`
+- Build verification:
+  - Ran `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 GRADLE_USER_HOME=/tmp/.gradle ./gradlew :app:assembleDebug`
+  - Result: `BUILD SUCCESSFUL`
+
+## 2026-05-16 (Map/Timeline Loading + Error States)
+
+- Re-read `docs/WORK_DONE.md` and `docs/NEXT_STEPS.md` before implementation as requested.
+- Added explicit timeline/map data UI state model for repository-backed loads:
+  - `TimelineDataUiState`:
+    - `Loading`
+    - `Empty`
+    - `Success(points)`
+    - `Error(message)`
+  - Added `TimelineDataUiStateFactory` helper for consistent mapping from points/errors into UI states.
+- Updated `HomeScreen` data flow to use stateful loading with failure handling:
+  - Replaced direct `points` assignment with `timelineState`.
+  - Wrapped repository load in `try/catch` so failures do not crash UI.
+  - Added `loadAttempt` retry key and retry action support.
+  - Kept existing timeline selector behavior and selected `TimelineRange` loading.
+  - Stats section now renders by state:
+    - loading message/progress while loading
+    - normal stats for empty/success (empty yields zero/default stats)
+    - error message + retry button on failure
+  - Export actions remain in stats section and are enabled only when data is in `Success` state.
+  - Places list is only shown for `Success`/`Empty` states (hidden during loading/error).
+- Updated `MapScreen` to render by `TimelineDataUiState`:
+  - Loading: progress indicator + loading message
+  - Empty: friendly empty state message
+  - Error: friendly error message + retry button
+  - Success: existing Google Map + polyline + visit markers behavior
+  - Kept existing polyline thinning and camera-fit behavior for successful data.
+- Added unit-testable helper coverage:
+  - `TimelineDataUiStateFactoryTest`
+- Files added:
+  - `app/src/main/java/com/footprint/app/timeline/TimelineDataUiState.kt`
+  - `app/src/test/java/com/footprint/app/timeline/TimelineDataUiStateFactoryTest.kt`
+- Files updated:
+  - `app/src/main/java/com/footprint/app/ui/HomeScreen.kt`
+  - `app/src/main/java/com/footprint/app/map/MapScreen.kt`
+- Build verification:
+  - Ran `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 GRADLE_USER_HOME=/tmp/.gradle ./gradlew :app:assembleDebug`
+  - Initial compile issue fixed:
+    - Kotlin smart-cast error in `HomeScreen` error branch (`timelineState` delegated property); resolved by using a local `currentTimelineState` val for `when`/message access.
+  - Final result: `BUILD SUCCESSFUL`
+
+## 2026-05-16 (Timeline DAO/Repository Integration Tests)
+
+- Re-read `docs/WORK_DONE.md` and `docs/NEXT_STEPS.md` before implementation as requested.
+- Confirmed Android instrumentation setup is present in project:
+  - `testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"` in app Gradle config.
+  - `androidTestImplementation` dependencies for AndroidX JUnit/Espresso/Compose test APIs already configured.
+- Added deterministic instrumentation integration tests using in-memory Room database:
+  - `LocationPointDaoIntegrationTest` covering DAO behaviors:
+    - insert one point
+    - insert multiple points
+    - query points between timestamps
+    - get all points ordered by time
+    - delete points older than timestamp
+    - delete all points
+  - `LocationRepositoryTimelineIntegrationTest` covering:
+    - `Today`
+    - `Yesterday`
+    - `ThisWeek`
+    - `ThisMonth`
+    - `ThisYear`
+    - `Lifetime`
+    - `Custom`
+  - Tests use fixed timestamps and fixed zone (`America/Chicago`) and do not depend on current system time.
+- Addressed failing local unit tests encountered while running required commands:
+  - Existing `LocationTrackingPolicyTest` used `android.location.Location` in JVM unit tests, causing runtime failures.
+  - Refactored `LocationTrackingPolicy` to add pure `PointSample`-based overloads for `shouldPersist` and `isMovingMeaningfully`, while preserving existing `Location`-based APIs for production code.
+  - Updated `LocationTrackingPolicyTest` to use `PointSample` so JVM unit tests remain deterministic and Android-framework-independent.
+- Files added:
+  - `app/src/androidTest/java/com/footprint/app/data/local/LocationPointDaoIntegrationTest.kt`
+  - `app/src/androidTest/java/com/footprint/app/data/LocationRepositoryTimelineIntegrationTest.kt`
+- Files updated:
+  - `app/src/main/java/com/footprint/app/location/LocationTrackingPolicy.kt`
+  - `app/src/test/java/com/footprint/app/location/LocationTrackingPolicyTest.kt`
+- Command verification results:
+  - `./gradlew :app:assembleDebug`
+    - Result: `BUILD SUCCESSFUL`
+  - `./gradlew :app:testDebugUnitTest`
+    - Result: `BUILD SUCCESSFUL`
+  - `./gradlew :app:connectedDebugAndroidTest`
+    - Result: failed with `No connected devices!`
+    - Instrumentation test infrastructure is present and test APK/tasks build, but execution requires an attached emulator/device in this environment.
+
+## 2026-05-16 (ACTIVE Mode Guardrails)
+
+- Re-read `docs/WORK_DONE.md` and `docs/NEXT_STEPS.md` before implementation as requested.
+- Implemented stronger guardrails so ACTIVE tracking is temporary and explicit:
+  - ACTIVE now requires explicit user action (`Start active trip`) and is no longer treated as a default background preference.
+  - Added active-trip session persistence via DataStore:
+    - `ActiveTripSessionStore`
+    - stores `isActive` and `startedAtEpochMillis`
+  - Added explicit control actions in service/controller:
+    - `ACTION_START_ACTIVE_TRIP`
+    - `ACTION_STOP_ACTIVE_TRIP`
+    - `TrackingController.startActiveTrip()`
+    - `TrackingController.stopActiveTrip()`
+- Added 2-hour active-trip timeout behavior:
+  - Added policy constants/helpers:
+    - `DEFAULT_ACTIVE_TRIP_TIMEOUT_MILLIS` (2 hours)
+    - `isActiveTripExpired(...)`
+    - `resolveEffectiveMode(...)` (active-trip override + fallback to adaptive preferred mode)
+  - `LocationTrackingService` now:
+    - tracks active-trip requested/start time
+    - uses active-trip override only while session is valid
+    - clears active-trip session on timeout and falls back to adaptive preferred mode
+    - clears active-trip session when tracking stops
+- Kept preferred mode and active-trip override as separate concepts:
+  - `TrackingPreferencesStore` now normalizes preference writes/reads so `ACTIVE` cannot silently persist as background default.
+  - Preferred background mode remains `LOW_POWER` or `BALANCED`; active trip is separate temporary override.
+- Updated runtime tracking state to expose active-trip runtime status:
+  - `TrackingState` now includes `isActiveTripRunning`.
+  - `TrackingRuntimeStateStore` persists/observes `isActiveTripRunning`.
+- Updated UI:
+  - `HomeScreen`:
+    - shows active-trip status text
+    - adds `Start active trip (2h)` and `Stop active trip` actions
+  - `MainActivity`:
+    - observes `ActiveTripSessionStore`
+    - wires explicit active-trip start/stop callbacks
+  - `SettingsScreen`:
+    - wording now clarifies active trip is separate and higher battery
+    - default mode selection UI now shows only `LOW_POWER` and `BALANCED`
+- Added unit-testable timeout/override policy coverage:
+  - Updated `LocationTrackingPolicyTest` with tests for:
+    - active mode not used as background default in adaptive fallback
+    - active-trip effective mode while session is valid
+    - fallback after timeout
+    - timeout boundary behavior
+- Files added:
+  - `app/src/main/java/com/footprint/app/data/ActiveTripSessionStore.kt`
+- Files updated:
+  - `app/src/main/java/com/footprint/app/location/LocationTrackingPolicy.kt`
+  - `app/src/main/java/com/footprint/app/location/LocationTrackingService.kt`
+  - `app/src/main/java/com/footprint/app/location/TrackingController.kt`
+  - `app/src/main/java/com/footprint/app/location/TrackingState.kt`
+  - `app/src/main/java/com/footprint/app/data/TrackingRuntimeStateStore.kt`
+  - `app/src/main/java/com/footprint/app/data/TrackingPreferencesStore.kt`
+  - `app/src/main/java/com/footprint/app/MainActivity.kt`
+  - `app/src/main/java/com/footprint/app/ui/HomeScreen.kt`
+  - `app/src/main/java/com/footprint/app/ui/SettingsScreen.kt`
+  - `app/src/test/java/com/footprint/app/location/LocationTrackingPolicyTest.kt`
+- Build verification:
+  - Ran `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 GRADLE_USER_HOME=/tmp/.gradle ./gradlew :app:assembleDebug`
+  - Result: `BUILD SUCCESSFUL`
