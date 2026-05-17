@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="com.footprint.app.timeline.VisitDetectorTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-05-17T05:08:03" hostname="Dracon" time="0.057">
-  <properties/>
-  <testcase name="detectsVisitWhenPointsStayWithinRadiusLongEnough" classname="com.footprint.app.timeline.VisitDetectorTest" time="0.057"/>
-  <system-out><![CDATA[]]></system-out>
-  <system-err><![CDATA[]]></system-err>
-</testsuite>
