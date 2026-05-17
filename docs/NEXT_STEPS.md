@@ -2,19 +2,20 @@
 
 ## Immediate
 
-1. Improve service-backed tracking state robustness:
-   add startup reconciliation when app launches while service is already running (ensure UI status matches real service state after process death/restart).
-2. Move screen/business state orchestration from Activity composable state into ViewModels (home timeline state, export state, privacy actions, and tracking state collection) while preserving behavior.
-3. Run the new instrumentation integration tests on CI/emulator:
-   execute `LocationPointDaoIntegrationTest` and `LocationRepositoryTimelineIntegrationTest` on a connected device and gate merges on pass/fail.
-4. Add instrumentation coverage for ACTIVE trip guardrails:
+1. Add a second CI workflow/job for instrumentation coverage with emulator setup and gating for:
+   `./gradlew :app:connectedDebugAndroidTest` (including `FootprintMigrationScaffoldTest`, `LocationPointDaoIntegrationTest`, and `LocationRepositoryTimelineIntegrationTest`).
+2. Add unit tests for new ViewModels (`HomeViewModel`, `PermissionViewModel`, `SettingsViewModel`, `PrivacyViewModel`), including timeline loading/error/retry and privacy action state transitions.
+3. Add Google Maps API key manifest placeholder wiring (`com.google.android.geo.API_KEY` with `${MAPS_API_KEY}`) and keep secret values local/non-committed.
+4. Run instrumentation tests on emulator/device for migration scaffolding and existing integration tests:
+   execute `FootprintMigrationScaffoldTest`, `LocationPointDaoIntegrationTest`, and `LocationRepositoryTimelineIntegrationTest` in CI gating.
+5. Expand startup reconciliation robustness:
+   add instrumentation coverage for app-relaunch/service-running, service-stopped, and permission-missing startup scenarios (including stale `RUNNING` correction paths).
+6. Add instrumentation coverage for ACTIVE trip guardrails:
    verify explicit start/stop flows, timeout fallback after ~2 hours, and that ACTIVE is not persisted as default preferred mode.
-5. Add instrumentation coverage for permission UX transitions across Android versions:
+7. Add instrumentation coverage for permission UX transitions across Android versions:
    verify denied/permanently-denied foreground behavior, Android 10+ background settings guidance, and Android 13+ notification permission staging.
-6. Add Room migration/versioning policy and optional schema export strategy before the first production release.
-7. Externalize machine-specific SDK/JDK setup notes for teammates:
-   document required `sdk.dir`, JDK version, and Gradle env expectations in `README.md`.
-8. Run/expand unit tests for timeline, visit detection, export formatters, and tracking-state mapping/service transitions in CI once test tasks are wired.
+8. Add first real migration test when database version increments (for example `1->2`) and commit both old/new schema JSON snapshots.
+9. Run/expand unit tests for timeline, visit detection, export formatters, and tracking-state mapping/service transitions in CI once test tasks are wired.
 
 ## Foundation Follow-Ups
 
@@ -39,7 +40,7 @@
 12. Add stronger privacy controls:
    export local data, selective date-range deletion, and optional automatic retention policy settings.
 13. Add import/restore or archive strategy for local exports (still local-only, no cloud sync).
-14. Add unit/instrumentation test scaffolding and CI build checks.
+14. Expand CI beyond baseline build/unit checks with lint and instrumentation coverage once emulator workflow is stable.
 
 ## Process Rule
 

@@ -2,7 +2,6 @@ package com.footprint.app
 
 import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -13,36 +12,39 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
-import androidx.core.content.ContextCompat
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.footprint.app.data.LocationRepository
 import com.footprint.app.data.ActiveTripSessionStore
+import com.footprint.app.data.LocationRepository
 import com.footprint.app.data.TrackingPreferencesStore
 import com.footprint.app.data.TrackingRuntimeStateStore
 import com.footprint.app.data.local.FootprintDatabaseProvider
 import com.footprint.app.location.TrackingController
-import com.footprint.app.location.TrackingMode
 import com.footprint.app.location.TrackingState
+import com.footprint.app.location.TrackingStateReconciler
 import com.footprint.app.ui.AppRoutes
 import com.footprint.app.ui.HomeScreen
-import com.footprint.app.ui.ForegroundPermissionStatus
-import com.footprint.app.ui.PermissionUiState
 import com.footprint.app.ui.PermissionExplanationScreen
 import com.footprint.app.ui.PrivacyScreen
 import com.footprint.app.ui.SettingsScreen
 import com.footprint.app.ui.theme.FootprintTheme
-import kotlinx.coroutines.launch
+import com.footprint.app.ui.viewmodel.HomeViewModel
+import com.footprint.app.ui.viewmodel.HomeViewModelFactory
+import com.footprint.app.ui.viewmodel.PermissionViewModel
+import com.footprint.app.ui.viewmodel.PrivacyActionState
+import com.footprint.app.ui.viewmodel.PrivacyViewModel
+import com.footprint.app.ui.viewmodel.PrivacyViewModelFactory
+import com.footprint.app.ui.viewmodel.SettingsViewModel
+import com.footprint.app.ui.viewmodel.SettingsViewModelFactory
+import kotlinx.coroutines.flow.first
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -69,67 +71,57 @@ fun FootprintApp() {
         val db = FootprintDatabaseProvider.getDatabase(context.applicationContext)
         LocationRepository(db.locationPointDao())
     }
-    val coroutineScope = rememberCoroutineScope()
 
-    val selectedTrackingMode by trackingPreferencesStore.trackingModeFlow.collectAsState(
-        initial = TrackingMode.BALANCED
+    val homeViewModel: HomeViewModel = viewModel(
+        factory = HomeViewModelFactory(
+            locationRepository = locationRepository,
+            trackingController = trackingController,
+            trackingPreferencesStore = trackingPreferencesStore,
+            trackingRuntimeStateStore = trackingRuntimeStateStore,
+            activeTripSessionStore = activeTripSessionStore
+        )
+    )
+    val permissionViewModel: PermissionViewModel = viewModel()
+    val settingsViewModel: SettingsViewModel = viewModel(
+        factory = SettingsViewModelFactory(trackingPreferencesStore)
+    )
+    val privacyViewModel: PrivacyViewModel = viewModel(
+        factory = PrivacyViewModelFactory(locationRepository, trackingController)
     )
 
-    var dataRefreshKey by rememberSaveable { mutableIntStateOf(0) }
+    val homeUiState by homeViewModel.uiState.collectAsState()
+    val permissionState by permissionViewModel.permissionState.collectAsState()
+    val selectedMode by settingsViewModel.selectedMode.collectAsState()
+    val privacyActionState by privacyViewModel.actionState.collectAsState()
 
-    val trackingState by trackingRuntimeStateStore.trackingStateFlow.collectAsState(
-        initial = TrackingState.stopped()
-    )
-    val activeTripSession by activeTripSessionStore.sessionFlow.collectAsState(
-        initial = com.footprint.app.data.ActiveTripSession(isActive = false, startedAtEpochMillis = null)
-    )
-    var foregroundPermissionRequested by rememberSaveable { mutableStateOf(false) }
-    var hasForegroundPermission by rememberSaveable { mutableStateOf(context.hasForegroundLocationPermission()) }
-    var shouldShowForegroundRationale by rememberSaveable {
-        mutableStateOf(context.shouldShowForegroundPermissionRationale())
-    }
-    var hasBackgroundPermission by rememberSaveable { mutableStateOf(context.hasBackgroundLocationPermission()) }
-    var hasNotificationPermission by rememberSaveable { mutableStateOf(context.hasNotificationPermission()) }
-
-    val foregroundStatus = remember(
-        hasForegroundPermission,
-        foregroundPermissionRequested,
-        shouldShowForegroundRationale
-    ) {
-        when {
-            hasForegroundPermission -> ForegroundPermissionStatus.GRANTED
-            !foregroundPermissionRequested -> ForegroundPermissionStatus.NOT_REQUESTED
-            shouldShowForegroundRationale -> ForegroundPermissionStatus.DENIED
-            else -> ForegroundPermissionStatus.PERMANENTLY_DENIED
+    LaunchedEffect(Unit) {
+        val persisted = trackingRuntimeStateStore.trackingStateFlow.first()
+        val serviceRunning = trackingController.isTrackingServiceRunning()
+        val hasRequiredPermissions = trackingController.hasRequiredPermissionsForTracking()
+        val reconciled = TrackingStateReconciler.resolveStartupState(
+            persistedState = persisted,
+            isServiceRunning = serviceRunning,
+            hasRequiredPermissions = hasRequiredPermissions
+        )
+        if (reconciled != persisted) {
+            trackingRuntimeStateStore.setState(reconciled)
         }
     }
 
-    val permissionState = remember(
-        foregroundStatus,
-        hasBackgroundPermission,
-        hasNotificationPermission
-    ) {
-        PermissionUiState(
-            foregroundStatus = foregroundStatus,
-            isBackgroundGranted = hasBackgroundPermission,
-            isNotificationGranted = hasNotificationPermission
-        )
+    LaunchedEffect(permissionState.allRequiredPermissionsReady) {
+        homeViewModel.updatePermissionReadiness(permissionState.allRequiredPermissionsReady)
     }
 
     val foregroundPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) {
-        foregroundPermissionRequested = true
-        hasForegroundPermission = context.hasForegroundLocationPermission()
-        shouldShowForegroundRationale = context.shouldShowForegroundPermissionRationale()
-        hasBackgroundPermission = context.hasBackgroundLocationPermission()
-        hasNotificationPermission = context.hasNotificationPermission()
+        permissionViewModel.refreshFromSystem(context, context as? ComponentActivity)
     }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) {
-        hasNotificationPermission = context.hasNotificationPermission()
+        permissionViewModel.refreshFromSystem(context, context as? ComponentActivity)
     }
 
     NavHost(
@@ -137,15 +129,14 @@ fun FootprintApp() {
         startDestination = AppRoutes.PERMISSIONS
     ) {
         composable(AppRoutes.PERMISSIONS) {
-            hasForegroundPermission = context.hasForegroundLocationPermission()
-            shouldShowForegroundRationale = context.shouldShowForegroundPermissionRationale()
-            hasBackgroundPermission = context.hasBackgroundLocationPermission()
-            hasNotificationPermission = context.hasNotificationPermission()
+            LaunchedEffect(Unit) {
+                permissionViewModel.refreshFromSystem(context, context as? ComponentActivity)
+            }
 
             PermissionExplanationScreen(
                 permissionState = permissionState,
                 onRequestForegroundPermission = {
-                    foregroundPermissionRequested = true
+                    permissionViewModel.onForegroundPermissionRequested()
                     foregroundPermissionLauncher.launch(
                         arrayOf(
                             Manifest.permission.ACCESS_COARSE_LOCATION,
@@ -174,115 +165,68 @@ fun FootprintApp() {
 
         composable(AppRoutes.HOME) {
             HomeScreen(
-                selectedTrackingMode = selectedTrackingMode,
-                trackingState = trackingState,
-                isActiveTripRequested = activeTripSession.isActive,
-                dataRefreshKey = dataRefreshKey,
-                locationRepository = locationRepository,
+                uiState = homeUiState,
+                onTimelineOptionSelected = homeViewModel::onTimelineOptionSelected,
+                onCustomStartChanged = homeViewModel::onCustomStartChanged,
+                onCustomEndChanged = homeViewModel::onCustomEndChanged,
+                onRetryLoad = homeViewModel::reloadTimelineData,
                 onStartTracking = {
-                    if (permissionState.allRequiredPermissionsReady) {
-                        trackingController.startTracking()
-                    } else {
-                        navController.navigate(AppRoutes.PERMISSIONS) {
-                            launchSingleTop = true
-                        }
+                    homeViewModel.onStartTracking {
+                        navController.navigate(AppRoutes.PERMISSIONS) { launchSingleTop = true }
                     }
                 },
-                onStopTracking = {
-                    trackingController.stopTracking()
-                },
+                onStopTracking = homeViewModel::onStopTracking,
                 onStartActiveTrip = {
-                    if (permissionState.allRequiredPermissionsReady) {
-                        trackingController.startActiveTrip()
-                    } else {
-                        navController.navigate(AppRoutes.PERMISSIONS) {
-                            launchSingleTop = true
-                        }
+                    homeViewModel.onStartActiveTrip {
+                        navController.navigate(AppRoutes.PERMISSIONS) { launchSingleTop = true }
                     }
                 },
-                onStopActiveTrip = {
-                    trackingController.stopActiveTrip()
-                },
+                onStopActiveTrip = homeViewModel::onStopActiveTrip,
                 onOpenSettings = { navController.navigate(AppRoutes.SETTINGS) },
                 onOpenPrivacy = { navController.navigate(AppRoutes.PRIVACY) },
-                onManagePermissions = {
-                    navController.navigate(AppRoutes.PERMISSIONS)
-                },
-                canStartTracking = permissionState.allRequiredPermissionsReady
+                onManagePermissions = { navController.navigate(AppRoutes.PERMISSIONS) },
+                onMarkExportResult = homeViewModel::markExportResult
             )
         }
 
         composable(AppRoutes.SETTINGS) {
             SettingsScreen(
-                selectedMode = selectedTrackingMode,
-                onSelectMode = { mode ->
-                    coroutineScope.launch {
-                        trackingPreferencesStore.setTrackingMode(mode)
-                    }
-                },
+                selectedMode = selectedMode,
+                onSelectMode = settingsViewModel::selectMode,
                 onBack = { navController.popBackStack() }
             )
         }
 
         composable(AppRoutes.PRIVACY) {
+            val isWorking = privacyActionState is PrivacyActionState.Working
+            val actionMessage = when (privacyActionState) {
+                is PrivacyActionState.Success -> (privacyActionState as PrivacyActionState.Success).message
+                is PrivacyActionState.Error -> (privacyActionState as PrivacyActionState.Error).message
+                else -> null
+            }
+
             PrivacyScreen(
+                actionMessage = actionMessage,
+                isWorking = isWorking,
                 onPauseTracking = {
-                    trackingController.stopTracking()
+                    privacyViewModel.pauseTracking {
+                        homeViewModel.refreshAfterDataChange()
+                    }
                 },
                 onDeleteAllHistory = {
-                    coroutineScope.launch {
-                        locationRepository.deleteAllPoints()
-                        dataRefreshKey += 1
+                    privacyViewModel.deleteAllHistory {
+                        homeViewModel.refreshAfterDataChange()
                     }
                 },
                 onDeleteHistoryOlderThan30Days = {
-                    coroutineScope.launch {
-                        val cutoff = System.currentTimeMillis() - (30L * 24 * 60 * 60 * 1000)
-                        locationRepository.deletePointsOlderThan(cutoff)
-                        dataRefreshKey += 1
+                    privacyViewModel.deleteHistoryOlderThan30Days {
+                        homeViewModel.refreshAfterDataChange()
                     }
                 },
                 onBack = { navController.popBackStack() }
             )
         }
     }
-}
-
-private fun android.content.Context.hasForegroundLocationPermission(): Boolean {
-    val fineGranted = ContextCompat.checkSelfPermission(
-        this,
-        Manifest.permission.ACCESS_FINE_LOCATION
-    ) == PackageManager.PERMISSION_GRANTED
-
-    val coarseGranted = ContextCompat.checkSelfPermission(
-        this,
-        Manifest.permission.ACCESS_COARSE_LOCATION
-    ) == PackageManager.PERMISSION_GRANTED
-
-    return fineGranted || coarseGranted
-}
-
-private fun android.content.Context.shouldShowForegroundPermissionRationale(): Boolean {
-    val activity = this as? ComponentActivity ?: return false
-    val fine = activity.shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_FINE_LOCATION)
-    val coarse = activity.shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_COARSE_LOCATION)
-    return fine || coarse
-}
-
-private fun android.content.Context.hasBackgroundLocationPermission(): Boolean {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return true
-    return ContextCompat.checkSelfPermission(
-        this,
-        Manifest.permission.ACCESS_BACKGROUND_LOCATION
-    ) == PackageManager.PERMISSION_GRANTED
-}
-
-private fun android.content.Context.hasNotificationPermission(): Boolean {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
-    return ContextCompat.checkSelfPermission(
-        this,
-        Manifest.permission.POST_NOTIFICATIONS
-    ) == PackageManager.PERMISSION_GRANTED
 }
 
 private fun android.content.Context.openAppLocationSettings() {

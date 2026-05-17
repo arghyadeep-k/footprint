@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="com.footprint.app.timeline.DistanceCalculatorTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-05-17T04:32:46" hostname="Dracon" time="0.014">
+<testsuite name="com.footprint.app.timeline.DistanceCalculatorTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-05-17T05:08:03" hostname="Dracon" time="0.012">
   <properties/>
-  <testcase name="totalDistanceMeters_isPositiveForDifferentPoints" classname="com.footprint.app.timeline.DistanceCalculatorTest" time="0.014"/>
+  <testcase name="totalDistanceMeters_isPositiveForDifferentPoints" classname="com.footprint.app.timeline.DistanceCalculatorTest" time="0.012"/>
   <system-out><![CDATA[]]></system-out>
   <system-err><![CDATA[]]></system-err>
 </testsuite>

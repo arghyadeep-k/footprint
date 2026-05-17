@@ -636,3 +636,278 @@ Every future task must update both `docs/WORK_DONE.md` and `docs/NEXT_STEPS.md` 
 - Build verification:
   - Ran `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 GRADLE_USER_HOME=/tmp/.gradle ./gradlew :app:assembleDebug`
   - Result: `BUILD SUCCESSFUL`
+
+## 2026-05-16 (Startup Reconciliation for Service-Backed Tracking State)
+
+- Re-read `docs/WORK_DONE.md` and `docs/NEXT_STEPS.md` before implementation as requested.
+- Implemented startup reconciliation so app launch reflects real service runtime state after process death/relaunch:
+  - Added `TrackingStateReconciler` helper with unit-testable reconciliation decisions.
+  - Added stale-running reconciliation reason constant:
+    - `TrackingStateReconciler.STALE_RUNNING_REASON`
+  - Reconciliation behavior:
+    - If persisted state is `RUNNING` but tracking service is not actually running:
+      - update runtime state to `STOPPED`
+      - clear effective mode/active-trip runtime flag
+      - include clear stale-state reason in `errorMessage`
+    - If tracking service is running but persisted state is not `RUNNING`:
+      - promote runtime state to `RUNNING`
+      - preserve known effective mode when available
+    - Otherwise keep persisted state unchanged.
+- Added service-running runtime check in controller:
+  - `TrackingController.isTrackingServiceRunning()` using `ActivityManager` running services check for app service class name.
+- Added startup reconciliation execution in app launch flow:
+  - `MainActivity` now runs reconciliation in `LaunchedEffect(Unit)`:
+    - reads persisted runtime tracking state from `TrackingRuntimeStateStore`
+    - checks actual service running state via `TrackingController`
+    - writes reconciled runtime state back when different
+  - Home continues observing `trackingStateFlow`, now with reconciled state (no in-memory-only reliance).
+- Kept preferred tracking mode vs effective runtime mode separation unchanged.
+- Added unit-testable reconciliation tests:
+  - `TrackingStateReconcilerTest` covering:
+    - stale persisted running -> stopped + reconciliation reason
+    - service running + persisted stopped -> running
+    - consistent state remains unchanged
+- Files added:
+  - `app/src/main/java/com/footprint/app/location/TrackingStateReconciler.kt`
+  - `app/src/test/java/com/footprint/app/location/TrackingStateReconcilerTest.kt`
+- Files updated:
+  - `app/src/main/java/com/footprint/app/location/TrackingController.kt`
+  - `app/src/main/java/com/footprint/app/MainActivity.kt`
+- Command verification results:
+  - `./gradlew :app:assembleDebug`
+    - Result: `BUILD SUCCESSFUL`
+  - `./gradlew :app:testDebugUnitTest`
+    - Result: `BUILD SUCCESSFUL`
+
+## 2026-05-16 (Startup Reconciliation Refinement: Permission-Aware)
+
+- Re-read `docs/WORK_DONE.md` and `docs/NEXT_STEPS.md` before implementation as requested.
+- Refined startup reconciliation to explicitly handle permission-missing state:
+  - Added `TrackingStateReconciler.resolveStartupState(...)` with permission-aware inputs:
+    - `persistedState`
+    - `isServiceRunning`
+    - `hasRequiredPermissions`
+  - Added precedence rule:
+    - if required permissions are missing at startup, resolve to `PERMISSION_MISSING` instead of `RUNNING`.
+  - Added explicit reconciliation reason constant:
+    - `TrackingStateReconciler.PERMISSION_MISSING_REASON`
+- Kept backward compatibility by retaining `reconcile(...)` delegating to `resolveStartupState(..., hasRequiredPermissions = true)`.
+- Added tracking permission check helper in `TrackingController`:
+  - `hasRequiredPermissionsForTracking()`
+  - checks:
+    - foreground location (fine/coarse)
+    - background location (Android 10+)
+    - notifications (Android 13+)
+- Updated app startup reconciliation call site:
+  - `MainActivity` now calls `TrackingStateReconciler.resolveStartupState(...)` using:
+    - real service-running status from controller
+    - real required-permissions status from controller
+  - continues writing reconciled state to `TrackingRuntimeStateStore` when changed.
+- Added/updated unit tests for requested reconciliation scenarios:
+  - `persisted RUNNING + service not running -> STOPPED`
+  - `persisted RUNNING + permission missing -> PERMISSION_MISSING`
+  - `persisted RUNNING + service running -> RUNNING`
+  - `persisted STOPPED -> STOPPED`
+- Files updated:
+  - `app/src/main/java/com/footprint/app/location/TrackingStateReconciler.kt`
+  - `app/src/main/java/com/footprint/app/location/TrackingController.kt`
+  - `app/src/main/java/com/footprint/app/MainActivity.kt`
+  - `app/src/test/java/com/footprint/app/location/TrackingStateReconcilerTest.kt`
+- Command verification results:
+  - `./gradlew :app:assembleDebug`
+    - Result: `BUILD SUCCESSFUL`
+  - `./gradlew :app:testDebugUnitTest`
+    - Result: `BUILD SUCCESSFUL`
+
+## 2026-05-16 (ViewModel State Orchestration Refactor)
+
+- Re-read `docs/WORK_DONE.md` and `docs/NEXT_STEPS.md` before implementation as requested.
+- Moved major screen/business orchestration out of Activity/composable local state into ViewModels with lightweight manual factories (no Hilt).
+- Added ViewModels:
+  - `HomeViewModel`
+  - `PermissionViewModel`
+  - `SettingsViewModel`
+  - `PrivacyViewModel`
+- Added lightweight factories:
+  - `HomeViewModelFactory`
+  - `SettingsViewModelFactory`
+  - `PrivacyViewModelFactory`
+- Refactored `MainActivity`:
+  - now primarily wires dependencies + ViewModels + `NavHost`.
+  - removed direct timeline/map/export/privacy orchestration from Activity scope.
+  - keeps startup reconciliation, permission launchers, and route navigation wiring.
+- Home state moved into `HomeViewModel`:
+  - selected timeline option/range
+  - custom date range values
+  - timeline/map loading state
+  - loaded points
+  - visit detection results
+  - timeline stats
+  - export status message
+  - refresh trigger after privacy data operations
+  - tracking state/preferred mode/active-trip session collection
+- Permission flow moved into `PermissionViewModel`:
+  - foreground permission state tracking (`NOT_REQUESTED`, `GRANTED`, `DENIED`, `PERMANENTLY_DENIED`)
+  - background guidance state
+  - notification permission state
+  - readiness reflected through `PermissionUiState`
+- Settings mode logic moved into `SettingsViewModel`:
+  - preferred tracking mode collection from `TrackingPreferencesStore`
+  - preferred mode update action
+- Privacy actions moved into `PrivacyViewModel`:
+  - pause tracking
+  - delete all history
+  - delete older-than-30-days
+  - action state (`Idle` / `Working` / `Success` / `Error`)
+- Updated screens:
+  - `HomeScreen` now consumes `HomeUiState` + callbacks (instead of owning timeline/repository loading state).
+  - `PrivacyScreen` now supports action state display and disables actions while working.
+  - `PermissionExplanationScreen`/`SettingsScreen` continue as presentational UIs with ViewModel-driven inputs.
+- Preserved behavior:
+  - Navigation routes unchanged (`permissions`, `home`, `settings`, `privacy`)
+  - home opens settings/privacy
+  - settings/privacy back navigation still works
+  - tracking controls still work
+  - timeline/map/export/privacy flows remain functional
+- Files added:
+  - `app/src/main/java/com/footprint/app/ui/viewmodel/HomeViewModel.kt`
+  - `app/src/main/java/com/footprint/app/ui/viewmodel/PermissionViewModel.kt`
+  - `app/src/main/java/com/footprint/app/ui/viewmodel/SettingsViewModel.kt`
+  - `app/src/main/java/com/footprint/app/ui/viewmodel/PrivacyViewModel.kt`
+  - `app/src/main/java/com/footprint/app/ui/viewmodel/ViewModelFactories.kt`
+- Files updated:
+  - `app/src/main/java/com/footprint/app/MainActivity.kt`
+  - `app/src/main/java/com/footprint/app/ui/HomeScreen.kt`
+  - `app/src/main/java/com/footprint/app/ui/PrivacyScreen.kt`
+- Command verification results:
+  - `./gradlew :app:assembleDebug`
+    - Result: `BUILD SUCCESSFUL`
+  - `./gradlew :app:testDebugUnitTest`
+    - Result: `BUILD SUCCESSFUL`
+
+## 2026-05-17 (Room Migration Policy + Schema Export Strategy)
+
+- Re-read `docs/WORK_DONE.md` and `docs/NEXT_STEPS.md` before implementation as requested.
+- Reviewed current Room setup:
+  - `FootprintDatabase` (`version = 1`)
+  - `LocationPoint` entity
+  - Room/KSP Gradle wiring
+- Enabled Room schema export and stable schema location:
+  - Updated `FootprintDatabase` to `exportSchema = true`.
+  - Added KSP Room args in `app/build.gradle.kts`:
+    - `room.schemaLocation=$projectDir/schemas`
+    - `room.incremental=true`
+    - `room.expandProjection=true`
+  - Added Android test assets source set mapping:
+    - `androidTest.assets.srcDirs("$projectDir/schemas")`
+  - Created stable schema directory:
+    - `app/schemas`
+  - Verified generated schema file exists:
+    - `app/schemas/com.footprint.app.data.local.FootprintDatabase/1.json`
+- Added migration/versioning policy wiring in code:
+  - Added `FootprintMigrations` registry object with `ALL` migration array placeholder.
+  - Updated `FootprintDatabaseProvider` to register migrations via:
+    - `.addMigrations(*FootprintMigrations.ALL)`
+  - Did not enable destructive migration for production.
+- Added migration test scaffold support:
+  - Added `androidTestImplementation` for `androidx.room:room-testing`.
+  - Added `FootprintMigrationScaffoldTest` using `MigrationTestHelper`:
+    - validates v1 schema creation and baseline migration validation path.
+    - provides practical scaffold for future `1->2`, `2->3`, etc. migration tests.
+- Added documentation updates:
+  - Added `docs/DATABASE_POLICY.md` with:
+    - current DB version
+    - schema export location
+    - migration rules (no destructive production migration)
+    - step-by-step “how to add a migration”
+    - migration test approach
+  - Updated `README.md` with database version/schema location and policy link.
+- Files added:
+  - `app/src/main/java/com/footprint/app/data/local/FootprintMigrations.kt`
+  - `app/src/androidTest/java/com/footprint/app/data/local/FootprintMigrationScaffoldTest.kt`
+  - `docs/DATABASE_POLICY.md`
+  - `app/schemas/.gitkeep`
+- Files updated:
+  - `app/src/main/java/com/footprint/app/data/local/FootprintDatabase.kt`
+  - `app/src/main/java/com/footprint/app/data/local/FootprintDatabaseProvider.kt`
+  - `app/build.gradle.kts`
+  - `gradle/libs.versions.toml`
+  - `README.md`
+- Command verification results:
+  - `./gradlew :app:assembleDebug`
+    - Result: `BUILD SUCCESSFUL`
+  - `./gradlew :app:testDebugUnitTest`
+    - Result: `BUILD SUCCESSFUL`
+
+## 2026-05-17 (README Environment/Setup Externalization)
+
+- Re-read `docs/WORK_DONE.md` and `docs/NEXT_STEPS.md` before implementation as requested.
+- Reworked `README.md` so a new developer can set up and build without chat context.
+- Added concise but complete project documentation:
+  - app name and purpose:
+    - low-power background location history app drawing travel routes on map
+  - local-first privacy approach
+  - current implementation status summary
+- Added required tooling section:
+  - JDK version (`21`)
+  - Android SDK requirements
+  - Android command-line tools
+  - platform-tools
+  - Android platform (`android-35`)
+  - Gradle wrapper usage guidance
+- Added local setup guidance:
+  - `local.properties` + `sdk.dir`
+  - machine-specific note and non-commit guidance
+  - `JAVA_HOME` expectation
+  - note about current `org.gradle.java.home` usage in this repo/environment
+- Added common developer commands:
+  - `./gradlew :app:assembleDebug`
+  - `./gradlew :app:testDebugUnitTest`
+  - `./gradlew :app:connectedDebugAndroidTest`
+  - `adb devices`
+  - `./gradlew :app:installDebug`
+- Added Google Maps API key setup guidance:
+  - explicitly documented current manifest status (no API metadata yet)
+  - recommended metadata placeholder pattern (`${MAPS_API_KEY}`)
+  - where to place local key (for example `~/.gradle/gradle.properties`)
+  - explicit “do not commit real keys” guidance
+- Added current permission expectations section:
+  - foreground location
+  - background location
+  - foreground service + foreground service location
+  - Android 13+ notifications
+  - staged in-app permission flow summary
+- Added Room database policy reference section:
+  - current DB version
+  - schema location
+  - link to `docs/DATABASE_POLICY.md`
+- Files updated:
+  - `README.md`
+- Command verification results:
+  - `./gradlew :app:assembleDebug`
+    - Result: `BUILD SUCCESSFUL`
+
+## 2026-05-17
+
+- Added first GitHub Actions CI workflow for Android build + unit tests:
+  - `.github/workflows/android-ci.yml`
+  - Triggers on `push` and `pull_request`.
+  - Uses `actions/setup-java@v4` with Temurin JDK `21`.
+  - Uses `android-actions/setup-android@v3`.
+  - Installs required SDK components in CI:
+    - `platform-tools`
+    - `platforms;android-35`
+    - `build-tools;35.0.0`
+  - Ensures Gradle wrapper executable permission with `chmod +x ./gradlew`.
+  - Runs:
+    - `./gradlew :app:assembleDebug`
+    - `./gradlew :app:testDebugUnitTest`
+  - Added explicit note in workflow comments for future connected test step:
+    - `./gradlew :app:connectedDebugAndroidTest`
+- Removed machine-specific JDK path from `gradle.properties`:
+  - deleted `org.gradle.java.home=/usr/lib/jvm/java-21-openjdk-amd64`
+  - Gradle now relies on environment/toolchain setup (`JAVA_HOME` / CI JDK setup), improving portability across developer machines and CI runners.
+- Updated `README.md` with CI command coverage and future instrumentation-test CI note.
+- Local verification completed:
+  - Ran `/bin/bash -lc "JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 GRADLE_USER_HOME=/tmp/.gradle ./gradlew :app:assembleDebug"` -> `BUILD SUCCESSFUL`
+  - Ran `/bin/bash -lc "JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 GRADLE_USER_HOME=/tmp/.gradle ./gradlew :app:testDebugUnitTest"` -> `BUILD SUCCESSFUL`

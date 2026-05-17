@@ -294,7 +294,7 @@ public final class LocationPointDao_Impl implements LocationPointDao {
   public Object getAllPointsOrderedByTime(
       final Continuation<? super List<LocationPoint>> $completion) {
     final String _sql = "\n"
-            + "        SELECT *\n"
+            + "        SELECT `location_points`.`id` AS `id`, `location_points`.`latitude` AS `latitude`, `location_points`.`longitude` AS `longitude`, `location_points`.`accuracyMeters` AS `accuracyMeters`, `location_points`.`altitudeMeters` AS `altitudeMeters`, `location_points`.`speedMetersPerSecond` AS `speedMetersPerSecond`, `location_points`.`bearingDegrees` AS `bearingDegrees`, `location_points`.`provider` AS `provider`, `location_points`.`recordedAtEpochMillis` AS `recordedAtEpochMillis`, `location_points`.`batteryPercent` AS `batteryPercent`, `location_points`.`trackingMode` AS `trackingMode`, `location_points`.`source` AS `source`\n"
             + "        FROM location_points\n"
             + "        ORDER BY recordedAtEpochMillis ASC, id ASC\n"
             + "        ";
@@ -306,18 +306,18 @@ public final class LocationPointDao_Impl implements LocationPointDao {
       public List<LocationPoint> call() throws Exception {
         final Cursor _cursor = DBUtil.query(__db, _statement, false, null);
         try {
-          final int _cursorIndexOfId = CursorUtil.getColumnIndexOrThrow(_cursor, "id");
-          final int _cursorIndexOfLatitude = CursorUtil.getColumnIndexOrThrow(_cursor, "latitude");
-          final int _cursorIndexOfLongitude = CursorUtil.getColumnIndexOrThrow(_cursor, "longitude");
-          final int _cursorIndexOfAccuracyMeters = CursorUtil.getColumnIndexOrThrow(_cursor, "accuracyMeters");
-          final int _cursorIndexOfAltitudeMeters = CursorUtil.getColumnIndexOrThrow(_cursor, "altitudeMeters");
-          final int _cursorIndexOfSpeedMetersPerSecond = CursorUtil.getColumnIndexOrThrow(_cursor, "speedMetersPerSecond");
-          final int _cursorIndexOfBearingDegrees = CursorUtil.getColumnIndexOrThrow(_cursor, "bearingDegrees");
-          final int _cursorIndexOfProvider = CursorUtil.getColumnIndexOrThrow(_cursor, "provider");
-          final int _cursorIndexOfRecordedAtEpochMillis = CursorUtil.getColumnIndexOrThrow(_cursor, "recordedAtEpochMillis");
-          final int _cursorIndexOfBatteryPercent = CursorUtil.getColumnIndexOrThrow(_cursor, "batteryPercent");
-          final int _cursorIndexOfTrackingMode = CursorUtil.getColumnIndexOrThrow(_cursor, "trackingMode");
-          final int _cursorIndexOfSource = CursorUtil.getColumnIndexOrThrow(_cursor, "source");
+          final int _cursorIndexOfId = 0;
+          final int _cursorIndexOfLatitude = 1;
+          final int _cursorIndexOfLongitude = 2;
+          final int _cursorIndexOfAccuracyMeters = 3;
+          final int _cursorIndexOfAltitudeMeters = 4;
+          final int _cursorIndexOfSpeedMetersPerSecond = 5;
+          final int _cursorIndexOfBearingDegrees = 6;
+          final int _cursorIndexOfProvider = 7;
+          final int _cursorIndexOfRecordedAtEpochMillis = 8;
+          final int _cursorIndexOfBatteryPercent = 9;
+          final int _cursorIndexOfTrackingMode = 10;
+          final int _cursorIndexOfSource = 11;
           final List<LocationPoint> _result = new ArrayList<LocationPoint>(_cursor.getCount());
           while (_cursor.moveToNext()) {
             final LocationPoint _item;

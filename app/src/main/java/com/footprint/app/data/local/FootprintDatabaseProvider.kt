@@ -13,7 +13,10 @@ object FootprintDatabaseProvider {
                 context.applicationContext,
                 FootprintDatabase::class.java,
                 "footprint.db"
-            ).build().also { instance = it }
+            )
+                .addMigrations(*FootprintMigrations.ALL)
+                .build()
+                .also { instance = it }
         }
     }
 }

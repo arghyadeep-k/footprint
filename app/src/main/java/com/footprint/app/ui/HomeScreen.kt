@@ -20,52 +20,30 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.footprint.app.data.LocationRepository
 import com.footprint.app.data.export.TimelineExportFormatter
-import com.footprint.app.data.local.LocationPoint
-import com.footprint.app.location.TrackingMode
-import com.footprint.app.location.TrackingState
 import com.footprint.app.location.TrackingStateUiMapper
 import com.footprint.app.map.MapScreen
-import com.footprint.app.timeline.DistanceCalculator
 import com.footprint.app.timeline.TimelineDataUiState
-import com.footprint.app.timeline.TimelineDataUiStateFactory
-import com.footprint.app.timeline.TimelineRange
-import com.footprint.app.timeline.VisitDetector
 import com.footprint.app.timeline.VisitSegment
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import com.footprint.app.ui.viewmodel.HomeUiState
+import com.footprint.app.ui.viewmodel.HomeViewModel
+import com.footprint.app.ui.viewmodel.TimelineOption
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
-private enum class TimelineOption {
-    TODAY,
-    THIS_WEEK,
-    THIS_MONTH,
-    THIS_YEAR,
-    LIFETIME,
-    CUSTOM
-}
-
 @Composable
 fun HomeScreen(
-    selectedTrackingMode: TrackingMode,
-    trackingState: TrackingState,
-    isActiveTripRequested: Boolean,
-    dataRefreshKey: Int,
-    locationRepository: LocationRepository,
+    uiState: HomeUiState,
+    onTimelineOptionSelected: (TimelineOption) -> Unit,
+    onCustomStartChanged: (Long) -> Unit,
+    onCustomEndChanged: (Long) -> Unit,
+    onRetryLoad: () -> Unit,
     onStartTracking: () -> Unit,
     onStopTracking: () -> Unit,
     onStartActiveTrip: () -> Unit,
@@ -73,72 +51,47 @@ fun HomeScreen(
     onOpenSettings: () -> Unit,
     onOpenPrivacy: () -> Unit,
     onManagePermissions: () -> Unit,
-    canStartTracking: Boolean
+    onMarkExportResult: (String?) -> Unit
 ) {
     val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
-
-    val now = System.currentTimeMillis()
-    val initialStart = remember { now - (3L * 24 * 60 * 60 * 1000) }
-    val initialEnd = remember { now }
-
-    var selectedOption by remember { mutableStateOf(TimelineOption.TODAY) }
-    var customStartMillis by remember { mutableStateOf(initialStart) }
-    var customEndMillis by remember { mutableStateOf(initialEnd) }
-
-    val selectedRange = remember(selectedOption, customStartMillis, customEndMillis) {
-        selectedOption.toRange(customStartMillis, customEndMillis)
-    }
-
-    var loadAttempt by remember(selectedRange, dataRefreshKey) { mutableStateOf(0) }
-    var timelineState by remember(selectedRange, dataRefreshKey) {
-        mutableStateOf<TimelineDataUiState>(TimelineDataUiState.Loading)
-    }
 
     val csvExporter = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/csv")
     ) { uri ->
-        if (uri != null) {
-            val snapshot = (timelineState as? TimelineDataUiState.Success)?.points.orEmpty()
-            coroutineScope.launch(Dispatchers.IO) {
-                val csv = TimelineExportFormatter.toCsv(snapshot)
-                context.contentResolver.openOutputStream(uri)?.use { stream ->
-                    stream.write(csv.toByteArray(Charsets.UTF_8))
-                }
+        if (uri == null) {
+            onMarkExportResult("Export cancelled")
+            return@rememberLauncherForActivityResult
+        }
+        runCatching {
+            val csv = TimelineExportFormatter.toCsv(uiState.points)
+            context.contentResolver.openOutputStream(uri)?.use { stream ->
+                stream.write(csv.toByteArray(Charsets.UTF_8))
             }
+        }.onSuccess {
+            onMarkExportResult("CSV exported")
+        }.onFailure {
+            onMarkExportResult("CSV export failed")
         }
     }
 
     val geoJsonExporter = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/geo+json")
     ) { uri ->
-        if (uri != null) {
-            val snapshot = (timelineState as? TimelineDataUiState.Success)?.points.orEmpty()
-            coroutineScope.launch(Dispatchers.IO) {
-                val geoJson = TimelineExportFormatter.toGeoJson(snapshot)
-                context.contentResolver.openOutputStream(uri)?.use { stream ->
-                    stream.write(geoJson.toByteArray(Charsets.UTF_8))
-                }
+        if (uri == null) {
+            onMarkExportResult("Export cancelled")
+            return@rememberLauncherForActivityResult
+        }
+        runCatching {
+            val geoJson = TimelineExportFormatter.toGeoJson(uiState.points)
+            context.contentResolver.openOutputStream(uri)?.use { stream ->
+                stream.write(geoJson.toByteArray(Charsets.UTF_8))
             }
+        }.onSuccess {
+            onMarkExportResult("GeoJSON exported")
+        }.onFailure {
+            onMarkExportResult("GeoJSON export failed")
         }
     }
-
-    LaunchedEffect(selectedRange, dataRefreshKey, loadAttempt) {
-        timelineState = TimelineDataUiState.Loading
-        timelineState = try {
-            val loadedPoints = withContext(Dispatchers.IO) {
-                locationRepository.getPointsForTimelineRange(selectedRange)
-            }
-            TimelineDataUiStateFactory.fromPoints(loadedPoints)
-        } catch (error: Throwable) {
-            TimelineDataUiStateFactory.fromError(error)
-        }
-    }
-
-    val points = (timelineState as? TimelineDataUiState.Success)?.points.orEmpty()
-    val stats = remember(points) { TimelineStats.from(points) }
-    val visits = remember(points) { VisitDetector.detectVisits(points) }
-    val currentTimelineState = timelineState
 
     Column(
         modifier = Modifier
@@ -163,15 +116,15 @@ fun HomeScreen(
             ) {
                 Text("Tracking status", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    text = TrackingStateUiMapper.statusLabel(trackingState),
-                    color = if (trackingState.status == TrackingState.Status.RUNNING) {
+                    text = TrackingStateUiMapper.statusLabel(uiState.trackingState),
+                    color = if (uiState.trackingState.status == com.footprint.app.location.TrackingState.Status.RUNNING) {
                         MaterialTheme.colorScheme.primary
                     } else {
                         MaterialTheme.colorScheme.onSurface
                     }
                 )
                 Text(
-                    text = "Effective mode: ${TrackingStateUiMapper.effectiveModeLabel(trackingState)}",
+                    text = "Effective mode: ${TrackingStateUiMapper.effectiveModeLabel(uiState.trackingState)}",
                     style = MaterialTheme.typography.bodySmall
                 )
             }
@@ -184,21 +137,21 @@ fun HomeScreen(
             ) {
                 Text("Timeline", style = MaterialTheme.typography.titleMedium)
                 TimelineSelector(
-                    selected = selectedOption,
-                    onSelect = { selectedOption = it }
+                    selected = uiState.selectedOption,
+                    onSelect = onTimelineOptionSelected
                 )
 
-                if (selectedOption == TimelineOption.CUSTOM) {
+                if (uiState.selectedOption == TimelineOption.CUSTOM) {
                     CustomRangePicker(
-                        startMillis = customStartMillis,
-                        endMillis = customEndMillis,
-                        onStartChanged = { customStartMillis = it },
-                        onEndChanged = { customEndMillis = it }
+                        startMillis = uiState.customStartMillis,
+                        endMillis = uiState.customEndMillis,
+                        onStartChanged = onCustomStartChanged,
+                        onEndChanged = onCustomEndChanged
                     )
                 }
 
                 Text(
-                    text = "Selected: ${selectedRange.label()}",
+                    text = "Selected: ${HomeViewModel.label(uiState.selectedRange)}",
                     style = MaterialTheme.typography.bodySmall
                 )
             }
@@ -210,7 +163,7 @@ fun HomeScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text("Stats", style = MaterialTheme.typography.titleMedium)
-                when (currentTimelineState) {
+                when (val timelineState = uiState.timelineState) {
                     TimelineDataUiState.Loading -> {
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             CircularProgressIndicator()
@@ -221,11 +174,11 @@ fun HomeScreen(
                     is TimelineDataUiState.Error -> {
                         Text("Could not load timeline data.")
                         Text(
-                            text = currentTimelineState.message,
+                            text = timelineState.message,
                             style = MaterialTheme.typography.bodySmall
                         )
                         OutlinedButton(
-                            onClick = { loadAttempt += 1 },
+                            onClick = onRetryLoad,
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text("Retry")
@@ -234,17 +187,17 @@ fun HomeScreen(
 
                     TimelineDataUiState.Empty,
                     is TimelineDataUiState.Success -> {
-                        Text("Saved points: ${stats.pointCount}")
-                        Text("Approx distance: ${stats.distanceKmLabel}")
-                        Text("First recorded: ${stats.firstRecordedLabel}")
-                        Text("Last recorded: ${stats.lastRecordedLabel}")
+                        Text("Saved points: ${uiState.stats.pointCount}")
+                        Text("Approx distance: ${uiState.stats.distanceKmLabel}")
+                        Text("First recorded: ${uiState.stats.firstRecordedLabel}")
+                        Text("Last recorded: ${uiState.stats.lastRecordedLabel}")
 
                         OutlinedButton(
                             onClick = {
-                                val fileName = "footprint_${selectedRange.fileSuffix()}_${System.currentTimeMillis()}.csv"
+                                val fileName = "footprint_${HomeViewModel.fileSuffix(uiState.selectedRange)}_${System.currentTimeMillis()}.csv"
                                 csvExporter.launch(fileName)
                             },
-                            enabled = timelineState is TimelineDataUiState.Success,
+                            enabled = uiState.timelineState is TimelineDataUiState.Success,
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text("Export CSV")
@@ -252,10 +205,10 @@ fun HomeScreen(
 
                         OutlinedButton(
                             onClick = {
-                                val fileName = "footprint_${selectedRange.fileSuffix()}_${System.currentTimeMillis()}.geojson"
+                                val fileName = "footprint_${HomeViewModel.fileSuffix(uiState.selectedRange)}_${System.currentTimeMillis()}.geojson"
                                 geoJsonExporter.launch(fileName)
                             },
-                            enabled = timelineState is TimelineDataUiState.Success,
+                            enabled = uiState.timelineState is TimelineDataUiState.Success,
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text("Export GeoJSON")
@@ -272,10 +225,10 @@ fun HomeScreen(
             ) {
                 Text("Map", style = MaterialTheme.typography.titleMedium)
                 MapScreen(
-                    timelineState = timelineState,
-                    visitSegments = visits,
-                    selectedRange = selectedRange,
-                    onRetry = { loadAttempt += 1 },
+                    timelineState = uiState.timelineState,
+                    visitSegments = uiState.visits,
+                    selectedRange = uiState.selectedRange,
+                    onRetry = onRetryLoad,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(260.dp)
@@ -283,8 +236,8 @@ fun HomeScreen(
             }
         }
 
-        if (timelineState is TimelineDataUiState.Success || timelineState is TimelineDataUiState.Empty) {
-            PlacesVisitedList(visits = visits)
+        if (uiState.timelineState is TimelineDataUiState.Success || uiState.timelineState is TimelineDataUiState.Empty) {
+            PlacesVisitedList(visits = uiState.visits)
         }
 
         Card(modifier = Modifier.fillMaxWidth()) {
@@ -294,13 +247,13 @@ fun HomeScreen(
             ) {
                 Text("Tracking", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    text = "Current mode: ${selectedTrackingMode.notificationLabel}",
+                    text = "Current mode: ${uiState.selectedTrackingMode.notificationLabel}",
                     style = MaterialTheme.typography.bodyMedium
                 )
                 Text(
-                    text = if (trackingState.isActiveTripRunning) {
+                    text = if (uiState.trackingState.isActiveTripRunning) {
                         "Active trip tracking is running (high battery use)."
-                    } else if (isActiveTripRequested) {
+                    } else if (uiState.isActiveTripRequested) {
                         "Active trip is armed and will run while tracking is active."
                     } else {
                         "Active trip is off."
@@ -309,12 +262,12 @@ fun HomeScreen(
                 )
                 OutlinedButton(
                     onClick = onStartTracking,
-                    enabled = canStartTracking,
+                    enabled = uiState.canStartTracking,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("Start tracking")
                 }
-                if (!canStartTracking) {
+                if (!uiState.canStartTracking) {
                     Text(
                         text = "Tracking needs foreground location, background location, and notifications (Android 13+) to be ready.",
                         style = MaterialTheme.typography.bodySmall
@@ -328,14 +281,14 @@ fun HomeScreen(
                 }
                 OutlinedButton(
                     onClick = onStartActiveTrip,
-                    enabled = canStartTracking && !trackingState.isActiveTripRunning,
+                    enabled = uiState.canStartTracking && !uiState.trackingState.isActiveTripRunning,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("Start active trip (2h)")
                 }
                 OutlinedButton(
                     onClick = onStopActiveTrip,
-                    enabled = isActiveTripRequested || trackingState.isActiveTripRunning,
+                    enabled = uiState.isActiveTripRequested || uiState.trackingState.isActiveTripRunning,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("Stop active trip")
@@ -353,6 +306,10 @@ fun HomeScreen(
                     Text("Privacy & data controls")
                 }
             }
+        }
+
+        uiState.exportMessage?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall)
         }
 
         OutlinedButton(
@@ -482,64 +439,6 @@ private fun showDatePicker(
         calendar.get(Calendar.MONTH),
         calendar.get(Calendar.DAY_OF_MONTH)
     ).show()
-}
-
-private data class TimelineStats(
-    val pointCount: Int,
-    val distanceKmLabel: String,
-    val firstRecordedLabel: String,
-    val lastRecordedLabel: String
-) {
-    companion object {
-        fun from(points: List<LocationPoint>): TimelineStats {
-            val formatter = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
-            val first = points.firstOrNull()?.recordedAtEpochMillis
-            val last = points.lastOrNull()?.recordedAtEpochMillis
-            val distanceKm = DistanceCalculator.totalDistanceMeters(points) / 1000.0
-
-            return TimelineStats(
-                pointCount = points.size,
-                distanceKmLabel = String.format(Locale.getDefault(), "%.2f km", distanceKm),
-                firstRecordedLabel = first?.let { formatter.format(Date(it)) } ?: "-",
-                lastRecordedLabel = last?.let { formatter.format(Date(it)) } ?: "-"
-            )
-        }
-    }
-}
-
-private fun TimelineOption.toRange(customStartMillis: Long, customEndMillis: Long): TimelineRange {
-    return when (this) {
-        TimelineOption.TODAY -> TimelineRange.Today
-        TimelineOption.THIS_WEEK -> TimelineRange.ThisWeek
-        TimelineOption.THIS_MONTH -> TimelineRange.ThisMonth
-        TimelineOption.THIS_YEAR -> TimelineRange.ThisYear
-        TimelineOption.LIFETIME -> TimelineRange.Lifetime
-        TimelineOption.CUSTOM -> TimelineRange.Custom(customStartMillis, customEndMillis)
-    }
-}
-
-private fun TimelineRange.label(): String {
-    return when (this) {
-        TimelineRange.Today -> "Today"
-        TimelineRange.Yesterday -> "Yesterday"
-        TimelineRange.ThisWeek -> "This Week"
-        TimelineRange.ThisMonth -> "This Month"
-        TimelineRange.ThisYear -> "This Year"
-        TimelineRange.Lifetime -> "Lifetime"
-        is TimelineRange.Custom -> "Custom"
-    }
-}
-
-private fun TimelineRange.fileSuffix(): String {
-    return when (this) {
-        TimelineRange.Today -> "today"
-        TimelineRange.Yesterday -> "yesterday"
-        TimelineRange.ThisWeek -> "this_week"
-        TimelineRange.ThisMonth -> "this_month"
-        TimelineRange.ThisYear -> "this_year"
-        TimelineRange.Lifetime -> "lifetime"
-        is TimelineRange.Custom -> "custom"
-    }
 }
 
 private fun formatDate(epochMillis: Long): String {

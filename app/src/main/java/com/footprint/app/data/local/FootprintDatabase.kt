@@ -6,7 +6,7 @@ import androidx.room.RoomDatabase
 @Database(
     entities = [LocationPoint::class],
     version = 1,
-    exportSchema = false
+    exportSchema = true
 )
 abstract class FootprintDatabase : RoomDatabase() {
     abstract fun locationPointDao(): LocationPointDao

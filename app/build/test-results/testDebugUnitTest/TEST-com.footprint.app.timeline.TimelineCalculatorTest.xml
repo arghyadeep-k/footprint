@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="com.footprint.app.timeline.TimelineCalculatorTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-05-17T04:32:46" hostname="Dracon" time="0.178">
+<testsuite name="com.footprint.app.timeline.TimelineCalculatorTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-05-17T05:08:03" hostname="Dracon" time="0.149">
   <properties/>
-  <testcase name="thisWeekWindow_startsMondayInDeviceZone" classname="com.footprint.app.timeline.TimelineCalculatorTest" time="0.12"/>
-  <testcase name="thisMonthWindow_startsFirstDayOfMonth" classname="com.footprint.app.timeline.TimelineCalculatorTest" time="0.015"/>
+  <testcase name="thisWeekWindow_startsMondayInDeviceZone" classname="com.footprint.app.timeline.TimelineCalculatorTest" time="0.1"/>
+  <testcase name="thisMonthWindow_startsFirstDayOfMonth" classname="com.footprint.app.timeline.TimelineCalculatorTest" time="0.011"/>
   <testcase name="todayWindow_usesLocalMidnightBounds" classname="com.footprint.app.timeline.TimelineCalculatorTest" time="0.0"/>
-  <testcase name="customWindow_normalizesReversedInputs" classname="com.footprint.app.timeline.TimelineCalculatorTest" time="0.042"/>
+  <testcase name="customWindow_normalizesReversedInputs" classname="com.footprint.app.timeline.TimelineCalculatorTest" time="0.038"/>
   <system-out><![CDATA[]]></system-out>
   <system-err><![CDATA[]]></system-err>
 </testsuite>

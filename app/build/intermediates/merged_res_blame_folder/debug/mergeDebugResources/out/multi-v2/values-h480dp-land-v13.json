@@ -4,7 +4,7 @@
             "outputFile": "com.footprint.app-mergeDebugResources-2:/values-h480dp-land-v13/values-h480dp-land-v13.xml",
             "map": [
                 {
-                    "source": "/tmp/.gradle/caches/8.10.2/transforms/9fe1af10c636054ce51675355b34e3e3/transformed/material-1.12.0/res/values-h480dp-land-v13/values-h480dp-land-v13.xml",
+                    "source": "/tmp/.gradle/caches/8.10.2/transforms/954777396a3c2b3e41b2baa1b5c8f13b/transformed/material-1.12.0/res/values-h480dp-land-v13/values-h480dp-land-v13.xml",
                     "from": {
                         "startLines": "2,3,4,5,6,7,8,9,10",
                         "startColumns": "4,4,4,4,4,4,4,4,4",

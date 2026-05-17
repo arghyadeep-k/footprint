@@ -22,6 +22,8 @@ import androidx.compose.ui.unit.dp
 
 @Composable
 fun PrivacyScreen(
+    actionMessage: String?,
+    isWorking: Boolean,
     onPauseTracking: () -> Unit,
     onDeleteAllHistory: () -> Unit,
     onDeleteHistoryOlderThan30Days: () -> Unit,
@@ -60,6 +62,7 @@ fun PrivacyScreen(
             ) {
                 OutlinedButton(
                     onClick = onPauseTracking,
+                    enabled = !isWorking,
                     modifier = Modifier.fillMaxWidth(),
                     contentPadding = PaddingValues(vertical = 12.dp)
                 ) {
@@ -68,6 +71,7 @@ fun PrivacyScreen(
 
                 OutlinedButton(
                     onClick = { pendingAction = PrivacyDeleteAction.DeleteOlderThan30Days },
+                    enabled = !isWorking,
                     modifier = Modifier.fillMaxWidth(),
                     contentPadding = PaddingValues(vertical = 12.dp)
                 ) {
@@ -76,6 +80,7 @@ fun PrivacyScreen(
 
                 OutlinedButton(
                     onClick = { pendingAction = PrivacyDeleteAction.DeleteAll },
+                    enabled = !isWorking,
                     modifier = Modifier.fillMaxWidth(),
                     contentPadding = PaddingValues(vertical = 12.dp)
                 ) {
@@ -86,10 +91,18 @@ fun PrivacyScreen(
 
         OutlinedButton(
             onClick = onBack,
+            enabled = !isWorking,
             modifier = Modifier.fillMaxWidth(),
             contentPadding = PaddingValues(vertical = 14.dp)
         ) {
             Text("Back")
+        }
+
+        if (actionMessage != null) {
+            Text(
+                text = actionMessage,
+                style = MaterialTheme.typography.bodySmall
+            )
         }
     }
 
