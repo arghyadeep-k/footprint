@@ -911,3 +911,675 @@ Every future task must update both `docs/WORK_DONE.md` and `docs/NEXT_STEPS.md` 
 - Local verification completed:
   - Ran `/bin/bash -lc "JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 GRADLE_USER_HOME=/tmp/.gradle ./gradlew :app:assembleDebug"` -> `BUILD SUCCESSFUL`
   - Ran `/bin/bash -lc "JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 GRADLE_USER_HOME=/tmp/.gradle ./gradlew :app:testDebugUnitTest"` -> `BUILD SUCCESSFUL`
+- Attempted instrumentation integration execution for Room/timeline tests on Android runtime.
+- Verified required instrumentation test classes exist:
+  - `app/src/androidTest/java/com/footprint/app/data/local/LocationPointDaoIntegrationTest.kt`
+  - `app/src/androidTest/java/com/footprint/app/data/LocationRepositoryTimelineIntegrationTest.kt`
+- Device/runtime availability checks:
+  - Ran `adb devices` -> failed in this environment: `adb: command not found`.
+  - Ran `./gradlew :app:connectedDebugAndroidTest` -> failed with `DeviceException: No connected devices!`.
+- Result: instrumentation tests were **not run** due to missing connected emulator/physical device runtime.
+- No app features were added or changed in this task.
+- Added ACTIVE trip guardrail testability/refactor with no new features:
+  - Introduced pure helper `TrackingModePolicy.normalizePreferredMode(...)` in:
+    - `app/src/main/java/com/footprint/app/location/TrackingModePolicy.kt`
+  - Updated `TrackingPreferencesStore` to use the shared helper for both read/write normalization:
+    - ensures `TrackingMode.ACTIVE` is never persisted as the default preferred tracking mode.
+- Expanded unit coverage for ACTIVE guardrail behavior:
+  - Added `app/src/test/java/com/footprint/app/location/TrackingModePolicyTest.kt`:
+    - `ACTIVE` normalizes to `BALANCED`
+    - non-active preferred modes remain unchanged
+  - Updated `app/src/test/java/com/footprint/app/location/LocationTrackingPolicyTest.kt` with explicit guardrail cases:
+    - ACTIVE is not used unless active trip is explicitly requested
+    - explicit active-trip stop/fallback returns to non-active mode
+    - timeout fallback behavior remains validated (~2h policy constant)
+    - preferred mode and active-trip override are tested as separate concepts
+- Build/test verification:
+  - Ran `./gradlew :app:assembleDebug` -> `BUILD SUCCESSFUL`
+  - Ran `./gradlew :app:testDebugUnitTest` -> `BUILD SUCCESSFUL`
+- Connected instrumentation execution attempt:
+  - Ran `./gradlew :app:connectedDebugAndroidTest` -> failed: `DeviceException: No connected devices!`
+  - Instrumentation execution remains pending on a machine with connected emulator/physical device.
+- Added permission-flow testability and coverage for staged foreground/background/notification transitions across Android versions.
+- Refactored permission state calculation into a pure resolver:
+  - Updated `app/src/main/java/com/footprint/app/ui/PermissionUiState.kt`:
+    - added `sdkInt` to `PermissionUiState` so permission requirements can be evaluated deterministically in tests
+    - added `PermissionStateResolver.resolve(...)` for pure, unit-testable permission-state mapping
+  - Updated `app/src/main/java/com/footprint/app/ui/viewmodel/PermissionViewModel.kt` to use `PermissionStateResolver` when refreshing from system state.
+- Added unit test coverage for required permission transitions:
+  - New file `app/src/test/java/com/footprint/app/ui/PermissionStateResolverTest.kt`
+  - Covered:
+    - foreground location not requested
+    - foreground location denied
+    - foreground location permanently denied
+    - foreground location granted
+    - Android 10+ background location requirement behavior
+    - background location not granted -> not ready
+    - Android 13+ notification permission requirement behavior
+    - all required permissions ready
+- Added instrumentation Compose coverage for staged permission UX behavior:
+  - New file `app/src/androidTest/java/com/footprint/app/ui/PermissionExplanationScreenTest.kt`
+  - Covered:
+    - background step appears only after foreground is granted (not requested at same time)
+    - notification step is staged only on Android 13+
+    - continue button remains disabled until all required permissions are ready
+- HomeScreen missing-permission guard behavior remains preserved:
+  - Start tracking / start active trip route users to permissions flow when readiness is false (through HomeViewModel callback path).
+- Build/test verification:
+  - Ran `./gradlew :app:assembleDebug` -> `BUILD SUCCESSFUL`
+  - Ran `./gradlew :app:testDebugUnitTest` -> `BUILD SUCCESSFUL`
+- Connected instrumentation attempt:
+  - Ran `./gradlew :app:connectedDebugAndroidTest` -> failed with `DeviceException: No connected devices!`
+  - Instrumentation runtime execution remains pending on a machine with connected emulator/physical device.
+- Upgraded timeline UX with quick presets and custom date+time selection (no database model changes).
+- Extended timeline range model:
+  - Updated `app/src/main/java/com/footprint/app/timeline/TimelineRange.kt` with:
+    - `Last24Hours`
+    - `Last7Days`
+    - `Last30Days`
+- Extended timeline window calculation:
+  - Updated `app/src/main/java/com/footprint/app/timeline/TimelineCalculator.kt`:
+    - added rolling windows for 24h / 7d / 30d anchored to current time
+    - preserved existing day/week/month/year/lifetime/custom logic
+    - retained custom-range normalization for reversed inputs
+- Updated timeline option/state mapping in Home ViewModel:
+  - Updated `app/src/main/java/com/footprint/app/ui/viewmodel/HomeViewModel.kt`:
+    - added options `LAST_24_HOURS`, `LAST_7_DAYS`, `LAST_30_DAYS`
+    - mapped options to new `TimelineRange` variants
+    - updated range labels and export filename suffix mapping
+- Upgraded Home timeline UI:
+  - Updated `app/src/main/java/com/footprint/app/ui/HomeScreen.kt`:
+    - added quick preset chips: `Last 24h`, `Last 7d`, `Last 30d`
+    - kept existing options: `Today`, `This Week`, `This Month`, `This Year`, `Lifetime`, `Custom`
+    - upgraded custom range picker to support:
+      - start date
+      - start time
+      - end date
+      - end time
+    - preserved existing timeline-change reload behavior (selection and custom changes still trigger reload)
+- Updated map range handling for new timeline variants:
+  - Updated `app/src/main/java/com/footprint/app/map/MapScreen.kt`:
+    - added thinning-distance cases for `Last24Hours`, `Last7Days`, `Last30Days`
+- Added/expanded boundary tests for timeline windows:
+  - Updated `app/src/test/java/com/footprint/app/timeline/TimelineCalculatorTest.kt` with coverage for:
+    - exact custom start/end boundaries
+    - reversed custom ranges
+    - last 24 hours rolling window
+    - last 7 days rolling window
+    - last 30 days rolling window
+- Build/test verification:
+  - Ran `./gradlew :app:testDebugUnitTest` -> `BUILD SUCCESSFUL`
+  - Ran `./gradlew :app:assembleDebug` -> `BUILD SUCCESSFUL`
+  - Note: a transient compile issue occurred when running assemble and unit-test tasks concurrently; clean sequential rerun passed.
+- Improved map path UX with explicit route start/end markers while preserving existing performance behavior.
+- Updated map rendering:
+  - `app/src/main/java/com/footprint/app/map/MapScreen.kt`
+  - Added Start/End markers (labels: `Start`, `End`) when timeline route has at least two points.
+  - Kept existing visit markers.
+  - Preserved existing polyline thinning behavior and camera-fit behavior.
+- Added pure helper logic to avoid marker duplication/confusion near visit markers:
+  - New `app/src/main/java/com/footprint/app/map/RouteMarkerPlanner.kt`
+  - `RouteMarkerPlanner.plan(...)` suppresses Start/End markers when route endpoints are within a suppression radius of visit marker coordinates.
+- Added unit tests for route marker helper logic:
+  - New `app/src/test/java/com/footprint/app/map/RouteMarkerPlannerTest.kt`
+  - Covered:
+    - no markers for routes with fewer than two points
+    - start/end shown when far from visit markers
+    - suppression when close to visit markers
+    - suppression of one endpoint while keeping the other
+- Optional route coloring by tracking mode:
+  - Deferred for future task; current map still uses single-color polyline to avoid larger refactor in this change.
+- Build/test verification:
+  - Ran `./gradlew :app:assembleDebug` -> `BUILD SUCCESSFUL`
+  - Ran `./gradlew :app:testDebugUnitTest` -> `BUILD SUCCESSFUL`
+- Polished Navigation Compose back-stack/state restoration behavior without adding new features.
+- Updated navigation orchestration in `app/src/main/java/com/footprint/app/MainActivity.kt`:
+  - Added route-aware navigation helpers on `NavHostController` for consistent NavOptions usage.
+  - Added route deduping via current-route checks before navigation to avoid duplicate instances.
+  - Permission completion (`permissions -> home`) now navigates cleanly with:
+    - `launchSingleTop = true`
+    - `restoreState = true`
+    - `popUpTo(AppRoutes.PERMISSIONS) { inclusive = true; saveState = true }`
+    - Result: permission screen is removed from back stack after successful completion.
+  - Home-triggered navigation to `settings`, `privacy`, and `permissions` now uses:
+    - `launchSingleTop = true`
+    - `restoreState = true`
+    - plus current-route no-op guard.
+  - Settings/Privacy back actions now explicitly return to Home reliably using:
+    - `popBackStack(AppRoutes.HOME, inclusive = false, saveState = true)`
+    - fallback navigate-to-home (`launchSingleTop + restoreState`) if Home is not present.
+- Preserved behavior goals:
+  - settings back returns to home
+  - privacy back returns to home
+  - permission completion routes to home cleanly
+  - avoids unnecessary duplicate home/settings/privacy/permissions route entries
+  - improves predictability of system/back-stack flows during recreation transitions.
+- Build/test verification:
+  - Ran `./gradlew :app:assembleDebug` -> `BUILD SUCCESSFUL`
+  - Ran `./gradlew :app:testDebugUnitTest` -> `BUILD SUCCESSFUL`
+- Polished ACTIVE trip UX to make it clearly temporary, higher-accuracy, and higher-battery use.
+- Added pure ACTIVE trip UI helper:
+  - New `app/src/main/java/com/footprint/app/location/ActiveTripUiMapper.kt`
+  - Provides:
+    - remaining time calculation from active-trip start + timeout policy
+    - remaining-time label formatting
+    - timeout policy label text (`...return to balanced mode after about 2 hours`)
+- Updated Home state wiring for active-trip timing:
+  - Updated `app/src/main/java/com/footprint/app/ui/viewmodel/HomeViewModel.kt`
+  - `HomeUiState` now tracks:
+    - `activeTripStartedAtEpochMillis`
+    - `activeTripRemainingMillis`
+  - Remaining time is derived from `ActiveTripSessionStore` start timestamp and timeout policy.
+- Updated Home tracking card messaging:
+  - Updated `app/src/main/java/com/footprint/app/ui/HomeScreen.kt`
+  - Clarified ACTIVE mode wording as:
+    - temporary
+    - higher accuracy
+    - higher battery use
+    - intended for intentional trips
+  - Added remaining active-trip time display when active/armed.
+  - Added explicit auto-timeout message:
+    - "Active trip tracking will return to balanced mode after about 2 hours."
+- Updated Settings wording for ACTIVE trip expectations:
+  - Updated `app/src/main/java/com/footprint/app/ui/SettingsScreen.kt`
+  - Clarifies ACTIVE is temporary, intentional-trip only, higher-battery, and not saved as default mode.
+- Updated foreground service notification messaging for ACTIVE mode:
+  - Updated `app/src/main/java/com/footprint/app/location/LocationTrackingService.kt`
+  - Notification now reflects ACTIVE session state when running:
+    - title indicates active trip is running
+    - body mentions higher-accuracy session and auto-timeout window with remaining time when available
+  - Notification refreshes on mode/session state changes while tracking.
+- Existing ACTIVE guardrails remain intact:
+  - ACTIVE still requires explicit user action (`ACTION_START_ACTIVE_TRIP`).
+  - ACTIVE is still not persisted as default preferred mode (`TrackingPreferencesStore` + `TrackingModePolicy.normalizePreferredMode`).
+- Added unit tests for pure helper logic:
+  - New `app/src/test/java/com/footprint/app/location/ActiveTripUiMapperTest.kt`
+  - Covered remaining-time calculation, clamping, label formatting, and timeout-policy text mapping.
+- Build/test verification:
+  - Ran `./gradlew :app:assembleDebug` -> `BUILD SUCCESSFUL`
+  - Ran `./gradlew :app:testDebugUnitTest` -> `BUILD SUCCESSFUL`
+- Polished map/timeline loading states for smoother, non-blocking UX while preserving existing `Loading/Empty/Success/Error` behaviors.
+- Updated Home timeline section (`app/src/main/java/com/footprint/app/ui/HomeScreen.kt`):
+  - Added lightweight manual refresh action (`Refresh timeline`) tied to existing reload callback.
+  - Kept existing timeline state model and retry paths.
+  - Loading state now shows non-blocking refresh messaging when cached points/stats already exist:
+    - shows subtle progress message (`Refreshing timeline data…`) while keeping previous stats visible.
+    - falls back to original loading indicator when no cached data exists.
+- Updated Map screen loading behavior (`app/src/main/java/com/footprint/app/map/MapScreen.kt`):
+  - Added `points` input so map can render cached route data during `Loading` when available.
+  - Preserved state handling semantics:
+    - `Loading` with no cached points -> existing loading view.
+    - `Loading` with cached points -> map remains visible with a lightweight top loading overlay (`Refreshing map…`).
+    - `Empty`, `Success`, `Error` behaviors remain intact; error still shows retry action.
+  - No new map features were added.
+- Timeline changes continue to trigger reload through existing ViewModel flow (`onTimelineOptionSelected`, custom start/end changes).
+- Database/tracking logic not refactored in this task.
+- Build/test verification:
+  - Ran `./gradlew :app:assembleDebug` -> `BUILD SUCCESSFUL`
+  - Ran `./gradlew :app:testDebugUnitTest` -> `BUILD SUCCESSFUL`
+  - Note: parallel execution of both Gradle tasks produced a transient KSP/classpath race in this environment; sequential rerun passed.
+- Improved visit detection quality to better handle nearby clusters, brief GPS drift, and noisy points.
+- Updated `app/src/main/java/com/footprint/app/timeline/VisitDetector.kt`:
+  - Added configurable `VisitDetector.Config` with defaults in code:
+    - `stationaryRadiusMeters = 100.0`
+    - `minimumVisitDurationMillis = 10 minutes`
+    - `minimumVisitPoints = 3`
+    - `driftToleranceWindowMillis = 2 minutes`
+    - `mergeNearbyRadiusMeters = 120.0`
+    - `mergeGapToleranceMillis = 3 minutes`
+  - Added drift-tolerant cluster handling:
+    - brief out-of-radius points inside drift tolerance no longer immediately split a visit.
+  - Added post-processing merge for nearby consecutive visits:
+    - merges visits when centers are nearby and time gap is short.
+  - Added stricter false-positive control:
+    - requires both minimum duration and minimum point count.
+- Kept UI integration unchanged:
+  - `HomeViewModel` still derives `visits` from `VisitDetector.detectVisits(points)`.
+  - `MapScreen` and `HomeScreen` continue rendering visit markers/list from `VisitSegment` data.
+- Added/updated unit tests in `app/src/test/java/com/footprint/app/timeline/VisitDetectorTest.kt` for:
+  - nearby visits merge correctly
+  - brief GPS drift does not split a visit
+  - moving points do not become a visit
+  - short stop below threshold is ignored
+- Build/test verification:
+  - Ran `./gradlew :app:assembleDebug` -> `BUILD SUCCESSFUL`
+  - Ran `./gradlew :app:testDebugUnitTest` -> `BUILD SUCCESSFUL`
+- Added richer connected places UI between map markers and places list.
+- Added visit-selection helper logic:
+  - New `app/src/main/java/com/footprint/app/timeline/VisitSelectionMapper.kt`
+  - Provides pure index normalization and selected-visit mapping for safe UI selection.
+- Updated Home view state and actions:
+  - Updated `app/src/main/java/com/footprint/app/ui/viewmodel/HomeViewModel.kt`
+  - Added `selectedVisitIndex` to `HomeUiState`.
+  - Added `onVisitSelected(index)` action.
+  - Selection is reconciled after visit list refresh so stale/out-of-range indexes are cleared.
+- Updated Home screen places UI:
+  - Updated `app/src/main/java/com/footprint/app/ui/HomeScreen.kt`
+  - Places list items are now tappable (`OutlinedButton` rows).
+  - Tapping a list item selects the matching visit.
+  - Added visible selected-visit detail card showing:
+    - approximate latitude/longitude
+    - arrival time
+    - departure time
+    - duration
+    - point count
+- Updated map marker behavior:
+  - Updated `app/src/main/java/com/footprint/app/map/MapScreen.kt`
+  - Visit markers are now tappable; tapping selects/highlights the matching visit.
+  - Selected marker is visually differentiated (azure marker hue + selected title).
+  - When selection changes, camera animates/focuses to selected visit location.
+  - Existing visit markers, route polyline, thinning behavior, and map state handling remain intact.
+- Updated navigation wiring for selection callback:
+  - Updated `app/src/main/java/com/footprint/app/MainActivity.kt`
+  - Passed `onVisitSelected` from `HomeViewModel` into `HomeScreen`.
+- Added pure helper tests:
+  - New `app/src/test/java/com/footprint/app/timeline/VisitSelectionMapperTest.kt`
+  - Covered:
+    - invalid/out-of-range selection normalization
+    - valid selection preservation
+    - mapping from selected index to matching `VisitSegment`
+- Build/test verification:
+  - Ran `./gradlew :app:assembleDebug` -> `BUILD SUCCESSFUL`
+  - Ran `./gradlew :app:testDebugUnitTest` -> `BUILD SUCCESSFUL`
+  - Note: parallel execution of both tasks produced a transient Kotlin build-dir lock in this environment; sequential unit-test rerun passed.
+- Expanded timeline boundary-case unit coverage in `app/src/test/java/com/footprint/app/timeline/TimelineCalculatorTest.kt`.
+- Added deterministic fixed-timestamp tests for exact range edges:
+  - start/end of day
+  - start/end of week
+  - start/end of month
+  - start/end of year
+- Added explicit reversed custom-range behavior coverage:
+  - test documents intended behavior (normalize reversed custom inputs instead of failing).
+- Added DST transition coverage using a fixed DST-observing zone (`America/New_York`):
+  - spring-forward day: verifies local-midnight-bounded window and 23-hour day length
+  - fall-back day: verifies local-midnight-bounded window and 25-hour day length
+- Kept all tests fixed-time and deterministic (no reliance on current date/time).
+- Reviewed timeline repository integration tests (`LocationRepositoryTimelineIntegrationTest`) for alignment with window semantics; no repository code changes required for this task.
+- Build/test verification:
+  - Ran `./gradlew :app:testDebugUnitTest` -> `BUILD SUCCESSFUL`
+  - Ran `./gradlew :app:assembleDebug` -> `BUILD SUCCESSFUL`
+- Added lightweight timeline summary cards for quick insights (local-only, no analytics dependency).
+- Added pure summary calculation logic:
+  - New `app/src/main/java/com/footprint/app/timeline/TimelineSummaryCalculator.kt`
+  - Computes:
+    - distance per day
+    - points per day
+    - detected visit count
+    - average daily distance (shown only when there are at least 2 days of data)
+  - Keeps calculations local and lightweight using existing `DistanceCalculator` + point timestamps.
+- Updated Home ViewModel state wiring:
+  - Updated `app/src/main/java/com/footprint/app/ui/viewmodel/HomeViewModel.kt`
+  - Added `summaryMetrics` to `HomeUiState`.
+  - Populates `summaryMetrics` during timeline reload from current points + visit count.
+- Updated Home UI:
+  - Updated `app/src/main/java/com/footprint/app/ui/HomeScreen.kt`
+  - Added a "Quick Summary" card section with:
+    - Distance per day
+    - Points per day
+    - Number of detected visits
+    - Average daily distance
+  - No chart dependency was added.
+- Added unit tests for pure stats logic:
+  - New `app/src/test/java/com/footprint/app/timeline/TimelineSummaryCalculatorTest.kt`
+  - Covered:
+    - empty points behavior
+    - multi-day points/day and distance/day computation
+    - average-daily-distance availability only when enough day span exists
+- Preserved existing map/timeline behavior and state flows.
+- Build/test verification:
+  - Ran `./gradlew :app:assembleDebug` -> `BUILD SUCCESSFUL`
+  - Ran `./gradlew :app:testDebugUnitTest` -> `BUILD SUCCESSFUL`
+  - Note: observed transient environment-specific Kotlin daemon/incremental fallback during unit tests; Gradle completed successfully.
+- Added stronger local privacy controls (no cloud/account changes).
+- Reviewed current privacy flow and repository deletion behavior, then extended data controls:
+  - Added selective date-range deletion with start/end date+time selection in `PrivacyScreen`.
+  - Added confirmation flow for range deletion using existing privacy confirmation dialog pattern.
+  - Added repository/DAO support for range deletion:
+    - `LocationPointDao.deletePointsBetween(startEpochMillis, endEpochMillis): Int`
+    - `LocationRepository.deletePointsBetween(startEpochMillis, endEpochMillis): Int`
+  - Range deletion normalizes reversed start/end inputs via `LocationPointHelpers.normalizeTimeWindow(...)`.
+- Added local retention policy support with DataStore persistence:
+  - New `RetentionPolicy` model:
+    - `KEEP_FOREVER`
+    - `DELETE_OLDER_THAN_30_DAYS`
+    - `DELETE_OLDER_THAN_90_DAYS`
+    - `DELETE_OLDER_THAN_1_YEAR`
+  - New `RetentionPolicyStore` (DataStore Preferences-backed).
+  - New `RetentionPolicyHelper.cutoffEpochMillis(...)` for pure retention cutoff calculation.
+- Updated `PrivacyViewModel`:
+  - collects/stores retention policy from `RetentionPolicyStore`
+  - added `deleteHistoryBetween(start, end)`
+  - added `setRetentionPolicy(policy)`
+  - added `applyRetentionPolicy(nowEpochMillis)` for automatic cleanup when policy is finite
+- Updated app wiring:
+  - `PrivacyViewModelFactory` now injects `RetentionPolicyStore`.
+  - `MainActivity` now creates `RetentionPolicyStore`, passes it into `PrivacyViewModelFactory`,
+    and triggers `privacyViewModel.applyRetentionPolicy()` at startup.
+  - `PrivacyScreen` route now receives retention policy state + callbacks for range deletion and policy updates.
+- Updated privacy UI wording to explicitly state retention/deletion is local-only on-device.
+- Added unit tests for retention helper logic:
+  - New file: `app/src/test/java/com/footprint/app/data/RetentionPolicyHelperTest.kt`
+  - Covers keep-forever (`null` cutoff) and expected cutoffs for 30d/90d/1y policies.
+- Build/test verification:
+  - Ran `./gradlew :app:assembleDebug` -> `BUILD SUCCESSFUL`
+  - Ran `./gradlew :app:testDebugUnitTest` -> `BUILD SUCCESSFUL`
+- Added first local import/restore strategy for exported data using CSV (local-only; no cloud sync).
+- Reviewed existing export flow and selected CSV as the first restore format because current exported CSV columns are stable and explicit.
+- Added CSV parser/validator implementation:
+  - New file: `app/src/main/java/com/footprint/app/data/importing/LocationCsvImportParser.kt`
+  - Validates required columns: `latitude`, `longitude`, `recorded_timestamp`, `tracking_mode`
+  - Supports optional `accuracy`
+  - Validates:
+    - latitude range (-90..90)
+    - longitude range (-180..180)
+    - timestamp is positive long
+    - tracking mode is one of known app modes (`LOW_POWER`, `BALANCED`, `ACTIVE`)
+  - Returns parse result with row counts, skipped rows, and per-row error messages.
+- Added import summary models/formatter:
+  - `CsvImportSummary`
+  - `CsvParseResult`
+  - `ParsedCsvLocationPoint`
+  - `CsvImportSummaryFormatter`
+  - New file: `app/src/main/java/com/footprint/app/data/importing/CsvImportSummaryFormatter.kt`
+- Added import flow in privacy controls with Android document picker:
+  - Updated `MainActivity` to use `ActivityResultContracts.OpenDocument()`
+  - Reads selected local CSV content via `ContentResolver`
+  - Passes content to `PrivacyViewModel.importCsvHistory(...)`
+  - Reports read failures as privacy action error state.
+- Extended privacy ViewModel for import:
+  - Updated `app/src/main/java/com/footprint/app/ui/viewmodel/PrivacyViewModel.kt`
+  - Added `importCsvHistory(csvContent)` and `reportActionError(message)`
+  - Import inserts parsed points into Room through `LocationRepository`
+  - Adds duplicate protection using timestamp + rounded lat/lng dedup keys:
+    - skips points already present in DB within imported timestamp window
+    - skips duplicate points inside the same import file
+  - Preserves local-only behavior by writing imported points to local Room DB only.
+- Updated privacy UI:
+  - Updated `app/src/main/java/com/footprint/app/ui/PrivacyScreen.kt`
+  - Added `Import CSV history` button in Privacy & Data controls.
+- Import summary behavior now shown through existing privacy action message area:
+  - rows read
+  - points imported
+  - rows skipped (including duplicate skips)
+  - error preview when parsing issues exist.
+- Added unit tests for parser logic:
+  - New file: `app/src/test/java/com/footprint/app/data/importing/LocationCsvImportParserTest.kt`
+  - Covers:
+    - valid CSV parsing
+    - missing required columns
+    - invalid latitude/longitude/timestamp/tracking_mode rows being skipped with errors
+- Build/test verification:
+  - Ran `./gradlew :app:assembleDebug` -> `BUILD SUCCESSFUL`
+  - Ran `./gradlew :app:testDebugUnitTest` -> `BUILD SUCCESSFUL`
+- Performed pre-release audit pass and added `docs/PRE_RELEASE_AUDIT.md`.
+- Audit reviewed project structure and docs across:
+  - build stability
+  - permissions
+  - background location flow
+  - foreground service behavior
+  - low-power/adaptive tracking modes
+  - ACTIVE trip guardrails
+  - timeline filtering
+  - map rendering
+  - visit detection
+  - local database and migration policy
+  - privacy controls
+  - export/import
+  - README setup instructions
+  - tests and CI coverage
+- `PRE_RELEASE_AUDIT.md` now contains:
+  - Ready
+  - Needs Work
+  - Blockers
+  - Recommended Next Fixes
+  - Manual Test Checklist
+  - exact command result section
+- Build/test command execution during this audit:
+  - `./gradlew :app:assembleDebug` -> `BUILD SUCCESSFUL`
+  - `./gradlew :app:testDebugUnitTest` -> `BUILD SUCCESSFUL`
+  - `./gradlew :app:connectedDebugAndroidTest` -> `BUILD FAILED` (`DeviceException: No connected devices!`)
+- Updated `docs/NEXT_STEPS.md` to only highest-priority remaining items focused on beta blockers:
+  1. run/fix connected instrumentation on emulator/device
+  2. add CI emulator instrumentation gating
+  3. wire Google Maps API key manifest placeholder and secure local provisioning
+  4. add critical ViewModel unit coverage
+  5. add CSV import integration tests
+- Performed a focused verification pass for startup tracking-state reconciliation robustness (no new feature additions were required because the requested behavior was already implemented).
+- Reviewed current implementations:
+  - `TrackingState`
+  - `TrackingRuntimeStateStore`
+  - `TrackingController`
+  - `LocationTrackingService`
+  - `MainActivity`
+  - `HomeScreen`
+- Confirmed startup reconciliation mechanism already runs on app launch in `MainActivity`:
+  - reads persisted runtime state from `TrackingRuntimeStateStore`
+  - checks live service status via `TrackingController.isTrackingServiceRunning()`
+  - checks required permissions via `TrackingController.hasRequiredPermissionsForTracking()`
+  - resolves startup state via `TrackingStateReconciler.resolveStartupState(...)`
+  - writes reconciled state back to DataStore when persisted state is stale.
+- Confirmed reconciliation logic covers required cases in `TrackingStateReconciler`:
+  - persisted `RUNNING` + service not running -> `STOPPED`
+  - persisted `RUNNING` + permission missing -> `PERMISSION_MISSING`
+  - persisted `RUNNING` + service running -> `RUNNING`
+  - persisted `STOPPED` -> `STOPPED`
+- Confirmed unit tests already exist and cover the required reconciliation cases:
+  - `app/src/test/java/com/footprint/app/location/TrackingStateReconcilerTest.kt`
+- Confirmed `HomeScreen` observes service-backed reconciled runtime state through `HomeViewModel` + `TrackingRuntimeStateStore` flow.
+- Confirmed preferred mode and effective runtime mode remain separate:
+  - preferred mode from `TrackingPreferencesStore`/Settings
+  - effective mode from runtime `TrackingState` (service-backed).
+- Build/test verification for this pass:
+  - `./gradlew :app:assembleDebug` -> `BUILD SUCCESSFUL`
+  - `./gradlew :app:testDebugUnitTest` -> `BUILD SUCCESSFUL`
+- Revisited startup reconciliation robustness with stricter ERROR-state handling expectations.
+- Verified existing startup reconciliation flow remains in place and active at app launch:
+  - `MainActivity` reads persisted `TrackingRuntimeStateStore` state
+  - checks live service runtime via `TrackingController.isTrackingServiceRunning()`
+  - checks permission readiness via `TrackingController.hasRequiredPermissionsForTracking()`
+  - resolves startup state via `TrackingStateReconciler.resolveStartupState(...)`
+  - writes reconciled state back to DataStore when stale.
+- Added reconciliation test coverage for ERROR-state non-silent-change behavior when no clear stale evidence exists:
+  - Updated `app/src/test/java/com/footprint/app/location/TrackingStateReconcilerTest.kt`
+  - New test: `persistedError_andNoClearStaleEvidence_remainsError`
+  - Confirms persisted `ERROR` state is preserved when service is not running and permissions are otherwise available.
+- Reconfirmed existing required reconciliation test cases are still covered:
+  - persisted RUNNING + service not running -> STOPPED
+  - persisted RUNNING + permission missing -> PERMISSION_MISSING
+  - persisted RUNNING + service running -> RUNNING
+  - persisted STOPPED -> STOPPED
+- Confirmed Home screen continues to observe reconciled service-backed runtime state through `HomeViewModel` + `TrackingRuntimeStateStore` flow (not in-memory-only state).
+- Build/test verification:
+  - `./gradlew :app:assembleDebug` -> `BUILD SUCCESSFUL`
+  - `./gradlew :app:testDebugUnitTest` -> `BUILD SUCCESSFUL`
+- Performed ViewModel-orchestration consolidation pass to keep screen/business logic out of composable UI where applicable.
+- Reviewed current orchestration across:
+  - `MainActivity`
+  - `HomeScreen`
+  - `PermissionExplanationScreen`
+  - `SettingsScreen`
+  - `PrivacyScreen`
+  - `MapScreen`
+  - `HomeViewModel`, `PermissionViewModel`, `SettingsViewModel`, `PrivacyViewModel`
+- Confirmed major state ownership already sits in ViewModels:
+  - Home timeline/filter/map/tracking/ui state in `HomeViewModel`
+  - permission state in `PermissionViewModel`
+  - preferred mode state in `SettingsViewModel`
+  - privacy actions and result state in `PrivacyViewModel`
+- Applied additional cleanup to remove remaining export payload generation from composable scope:
+  - Updated `app/src/main/java/com/footprint/app/ui/HomeScreen.kt`
+    - removed direct use of `TimelineExportFormatter` in composable
+    - added callbacks:
+      - `onExportCsv: () -> String`
+      - `onExportGeoJson: () -> String`
+    - export document writing remains in UI layer; payload generation now delegated to ViewModel callbacks.
+  - Updated `app/src/main/java/com/footprint/app/MainActivity.kt`
+    - wired Home screen export callbacks to ViewModel methods:
+      - `onExportCsv = homeViewModel::exportCsv`
+      - `onExportGeoJson = homeViewModel::exportGeoJson`
+- Preserved behavior:
+  - Navigation routes and back behavior unchanged
+  - Home -> Settings and Home -> Privacy unchanged
+  - tracking controls unchanged
+  - timeline/map reload unchanged
+  - export still works
+  - privacy delete/import actions still refresh timeline/map through `homeViewModel.refreshAfterDataChange()`
+- Build/test verification:
+  - `./gradlew :app:testDebugUnitTest` -> `BUILD SUCCESSFUL`
+  - `./gradlew :app:assembleDebug` -> transient failure when run in parallel with unit tests (dex/class race)
+  - `./gradlew :app:assembleDebug` rerun sequentially -> `BUILD SUCCESSFUL`
+- Performed Room migration/versioning policy and schema export verification pass before production.
+- Reviewed current Room setup files:
+  - `app/src/main/java/com/footprint/app/data/local/FootprintDatabase.kt`
+  - `app/src/main/java/com/footprint/app/data/local/LocationPoint.kt`
+  - `app/src/main/java/com/footprint/app/data/local/LocationPointDao.kt`
+  - `app/src/main/java/com/footprint/app/data/local/FootprintDatabaseProvider.kt`
+  - `app/build.gradle.kts`
+- Verified schema export strategy is enabled and stable:
+  - `@Database(..., version = 1, exportSchema = true)` is set
+  - KSP Room arg is configured: `room.schemaLocation = app/schemas`
+  - `androidTest` assets include schema directory for migration tests
+  - committed schema directory exists: `app/schemas/com.footprint.app.data.local.FootprintDatabase/1.json`
+- Verified migration safety policy and docs are in place:
+  - `docs/DATABASE_POLICY.md` documents current DB version, schema location, migration process, and migration testing approach
+  - production rule documented: do not use destructive migration
+- Verified runtime DB builder behavior is non-destructive:
+  - `FootprintDatabaseProvider` uses `.addMigrations(*FootprintMigrations.ALL)`
+  - no `fallbackToDestructiveMigration` usage present
+- Verified migration test scaffold exists:
+  - `app/src/androidTest/java/com/footprint/app/data/local/FootprintMigrationScaffoldTest.kt`
+  - confirms version-1 schema can be created/validated and provides clear path for future `1->2` migration tests.
+- No code changes were required in this pass because requirements were already satisfied.
+- Build/test verification:
+  - `./gradlew :app:assembleDebug` -> `BUILD SUCCESSFUL`
+  - `./gradlew :app:testDebugUnitTest` -> `BUILD SUCCESSFUL`
+- Updated `README.md` to externalize machine-specific SDK/JDK setup notes and improve onboarding clarity for new developers.
+- README updates include:
+  - Verified project summary remains explicit:
+    - app name: Footprint
+    - purpose: low-power background location history app with map route rendering
+    - local-first approach and current status
+  - Required tools section retained/clarified:
+    - JDK 21
+    - Android SDK + command-line tools
+    - Android platform `android-35`
+    - `platform-tools`
+    - Gradle wrapper usage (`./gradlew`)
+  - Local setup section corrected for accuracy:
+    - documented `local.properties` + `sdk.dir`
+    - reinforced that machine-specific local config should not be committed
+    - replaced inaccurate statement about in-repo `org.gradle.java.home` with local user-level fallback guidance in `~/.gradle/gradle.properties`
+  - Common commands section retained:
+    - `./gradlew :app:assembleDebug`
+    - `./gradlew :app:testDebugUnitTest`
+    - `./gradlew :app:connectedDebugAndroidTest`
+    - `adb devices`
+  - Google Maps API key section clarified:
+    - where to add manifest metadata
+    - where to store key locally
+    - not to commit real keys
+    - explicit current-state note that manifest placeholder wiring is not yet implemented in source
+  - Permission expectations retained/validated:
+    - foreground location
+    - background location
+    - foreground service location
+    - Android 13+ notification permission
+  - Added explicit "Local-First Privacy Expectations" section:
+    - data stays on device
+    - export/import are user-initiated
+    - no cloud sync currently
+- Build verification:
+  - `./gradlew :app:assembleDebug` -> `BUILD SUCCESSFUL`
+- Performed CI baseline verification pass for build + unit test checks.
+- Verified repository is GitHub-based and already contains a CI workflow:
+  - `.github/workflows/android-ci.yml`
+- Verified workflow meets baseline requirements:
+  - runs on push + pull_request
+  - sets up JDK 21 (`actions/setup-java@v4`, Temurin)
+  - enables Gradle cache (`cache: gradle`)
+  - sets up Android SDK (`android-actions/setup-android@v3`)
+  - installs required SDK components (`platform-tools`, `platforms;android-35`, `build-tools;35.0.0`)
+  - ensures Gradle wrapper is executable (`chmod +x ./gradlew`)
+  - runs:
+    - `./gradlew :app:assembleDebug`
+    - `./gradlew :app:testDebugUnitTest`
+  - does not require emulator/instrumentation tests in baseline workflow
+  - includes documented future CI step for `./gradlew :app:connectedDebugAndroidTest`
+- Verified CI baseline does not require secrets for current build/unit test workflow.
+  - Google Maps API key is not currently wired as required build-time secret for the baseline checks.
+- No workflow code changes were required because requirements were already satisfied.
+- Local command verification:
+  - `./gradlew :app:assembleDebug` -> `BUILD SUCCESSFUL`
+  - `./gradlew :app:testDebugUnitTest` -> `BUILD SUCCESSFUL`
+- Attempted instrumentation integration test execution pass for real-device/emulator runtime verification.
+- Verified required instrumentation tests exist:
+  - `app/src/androidTest/java/com/footprint/app/data/local/LocationPointDaoIntegrationTest.kt`
+  - `app/src/androidTest/java/com/footprint/app/data/LocationRepositoryTimelineIntegrationTest.kt`
+- Device availability check:
+  - Ran `adb devices`
+  - Result: `adb: command not found` in this environment.
+- Instrumentation task execution:
+  - Ran `./gradlew :app:connectedDebugAndroidTest`
+  - Result: `BUILD FAILED`
+  - Failure: `com.android.builder.testing.api.DeviceException: No connected devices!`
+- Conclusion: instrumentation tests were not run on a connected Android runtime because no connected emulator/device was available.
+- No app feature changes were made in this task.
+- Added stronger ACTIVE trip guardrail test coverage (unit-level, policy-focused) with fake/injected time inputs (no real-time waits).
+- Reviewed current ACTIVE-mode implementation across:
+  - `TrackingMode`
+  - `TrackingPreferencesStore`
+  - `TrackingRuntimeStateStore`
+  - `TrackingController`
+  - `LocationTrackingService`
+  - `SettingsScreen`
+  - `HomeScreen`
+- Existing coverage already validated core behaviors:
+  - ACTIVE requires explicit start override (`activeTripRequested` path)
+  - ACTIVE can be stopped explicitly (`activeTripRequested = false` fallback)
+  - ACTIVE timeout behavior at ~2h (`DEFAULT_ACTIVE_TRIP_TIMEOUT_MILLIS`)
+  - preferred mode normalization prevents persisting ACTIVE default (`TrackingModePolicyTest`)
+  - preferred mode vs active-trip override separation (`LocationTrackingPolicyTest`)
+- Added additional unit tests in `app/src/test/java/com/footprint/app/location/LocationTrackingPolicyTest.kt`:
+  - `resolveEffectiveMode_afterActiveTimeout_usesNonActiveAdaptiveFallbackWhenMoving`
+    - verifies timeout fallback respects adaptive non-active policy when movement is meaningful
+  - `resolveEffectiveMode_afterActiveTimeout_neverReturnsActive`
+    - verifies mode is never ACTIVE after timeout boundary is crossed
+- Build/test verification:
+  - `./gradlew :app:assembleDebug` -> `BUILD SUCCESSFUL`
+  - `./gradlew :app:testDebugUnitTest` -> `BUILD SUCCESSFUL`
+- Android runtime instrumentation execution status:
+  - Ran `adb devices` -> `adb: command not found`
+  - Connected-device instrumentation could not be run in this environment (no available emulator/device tooling/runtime).
+
+- Added instrumentation and unit coverage for staged permission UX transitions across Android versions.
+- Reviewed permission flow implementation in:
+  - `PermissionExplanationScreen`
+  - `PermissionViewModel`
+  - `MainActivity` permission route / NavHost wiring
+  - `HomeScreen` tracking start gating UI
+- Updated instrumentation tests:
+  - `app/src/androidTest/java/com/footprint/app/ui/PermissionExplanationScreenTest.kt`
+    - added `foregroundDenied_showsDeniedStatusLabel`
+    - added `foregroundPermanentlyDenied_showsAppSettingsGuidance`
+    - added `foregroundGranted_showsBackgroundGuidance_notBackgroundPromptWithForeground`
+  - Existing instrumentation coverage retained for:
+    - background step shown only after foreground grant (staged flow)
+    - Android 13+ notification step staging
+    - continue button readiness gating
+- Added HomeScreen permission gating instrumentation coverage:
+  - `app/src/androidTest/java/com/footprint/app/ui/HomeScreenPermissionGateTest.kt`
+    - verifies Start tracking is disabled when required permissions are missing
+    - verifies missing-permission guidance text is visible
+    - verifies Review permissions CTA is present
+- Added pure unit mapping coverage:
+  - `app/src/test/java/com/footprint/app/ui/PermissionUiTextMapperTest.kt`
+    - added `foregroundStatusLabel_mapsGranted`
+- Command results:
+  - `./gradlew :app:assembleDebug` -> `BUILD SUCCESSFUL`
+  - `./gradlew :app:testDebugUnitTest` -> `BUILD SUCCESSFUL`
+  - `adb devices` -> `/bin/bash: line 1: adb: command not found`
+  - `./gradlew :app:connectedDebugAndroidTest` -> `BUILD FAILED`
+    - failure: `com.android.builder.testing.api.DeviceException: No connected devices!`
+- Outcome:
+  - Permission UX transition coverage is expanded as requested.
+  - Connected instrumentation execution remains blocked by missing/connected Android runtime device in this environment.

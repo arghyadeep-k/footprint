@@ -6,7 +6,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -16,9 +18,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.footprint.app.data.local.LocationPoint
 import com.footprint.app.timeline.TimelineRange
 import com.footprint.app.timeline.TimelineDataUiState
 import com.footprint.app.timeline.VisitSegment
+import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.LatLngBounds
@@ -34,47 +38,62 @@ import kotlinx.coroutines.withContext
 @Composable
 fun MapScreen(
     timelineState: TimelineDataUiState,
+    points: List<LocationPoint>,
     visitSegments: List<VisitSegment>,
+    selectedVisitIndex: Int?,
     selectedRange: TimelineRange,
     onRetry: () -> Unit,
+    onVisitSelected: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    when (timelineState) {
-        TimelineDataUiState.Loading -> {
-            LoadingMapState(modifier)
-            return
-        }
-
-        TimelineDataUiState.Empty -> {
+    if (timelineState is TimelineDataUiState.Empty) {
+        if (points.isEmpty()) {
             EmptyMapState(modifier)
             return
         }
-
-        is TimelineDataUiState.Error -> {
-            ErrorMapState(
-                message = timelineState.message,
-                onRetry = onRetry,
-                modifier = modifier
-            )
-            return
-        }
-
-        is TimelineDataUiState.Success -> Unit
     }
 
-    val points = timelineState.points
+    if (timelineState is TimelineDataUiState.Error) {
+        ErrorMapState(
+            message = timelineState.message,
+            onRetry = onRetry,
+            modifier = modifier
+        )
+        return
+    }
+
+    if (timelineState is TimelineDataUiState.Loading && points.isEmpty()) {
+        LoadingMapState(modifier)
+        return
+    }
+
     val cameraPositionState = rememberCameraPositionState()
-    val routePoints = remember(points, selectedRange) {
-        val latLngPoints = points.map { LatLng(it.latitude, it.longitude) }
+    val routePoints = remember(points, selectedRange, timelineState) {
+        val sourcePoints = when (timelineState) {
+            is TimelineDataUiState.Success -> timelineState.points
+            else -> points
+        }
+        val latLngPoints = sourcePoints.map { LatLng(it.latitude, it.longitude) }
         PolylineThinner.thin(
             points = latLngPoints,
             minDistanceMeters = thinningDistanceForRange(selectedRange),
             maxPoints = 1200
         )
     }
+    val routeMarkers = remember(routePoints, visitSegments) {
+        RouteMarkerPlanner.plan(
+            routePoints = routePoints,
+            visitSegments = visitSegments
+        )
+    }
 
     LaunchedEffect(routePoints) {
         fitCameraToRoute(routePoints, cameraPositionState)
+    }
+    LaunchedEffect(selectedVisitIndex, visitSegments) {
+        val selected = selectedVisitIndex?.takeIf { it in visitSegments.indices } ?: return@LaunchedEffect
+        val visit = visitSegments[selected]
+        focusCameraOnVisit(visit.latitude, visit.longitude, cameraPositionState)
     }
 
     if (routePoints.isEmpty()) {
@@ -92,13 +111,40 @@ fun MapScreen(
             width = 8f
         )
 
+        routeMarkers.start?.let { start ->
+            Marker(
+                state = MarkerState(position = start),
+                title = "Start",
+                snippet = "Route start"
+            )
+        }
+
+        routeMarkers.end?.let { end ->
+            Marker(
+                state = MarkerState(position = end),
+                title = "End",
+                snippet = "Route end"
+            )
+        }
+
         visitSegments.forEachIndexed { index, visit ->
             Marker(
                 state = MarkerState(position = LatLng(visit.latitude, visit.longitude)),
-                title = "Place ${index + 1}",
-                snippet = "${visit.pointCount} points"
+                title = if (selectedVisitIndex == index) "Place ${index + 1} (Selected)" else "Place ${index + 1}",
+                snippet = "${visit.pointCount} points",
+                icon = BitmapDescriptorFactory.defaultMarker(
+                    if (selectedVisitIndex == index) BitmapDescriptorFactory.HUE_AZURE else BitmapDescriptorFactory.HUE_RED
+                ),
+                onClick = {
+                    onVisitSelected(index)
+                    false
+                }
             )
         }
+    }
+
+    if (timelineState is TimelineDataUiState.Loading && points.isNotEmpty()) {
+        LoadingOverlay(modifier)
     }
 }
 
@@ -172,6 +218,29 @@ private fun ErrorMapState(
     }
 }
 
+@Composable
+private fun LoadingOverlay(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier,
+        contentAlignment = Alignment.TopCenter
+    ) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                CircularProgressIndicator(modifier = Modifier.padding(end = 4.dp))
+                Text("Refreshing map…")
+            }
+        }
+    }
+}
+
 private suspend fun fitCameraToRoute(
     routePoints: List<LatLng>,
     cameraPositionState: CameraPositionState
@@ -200,6 +269,19 @@ private suspend fun fitCameraToRoute(
     }
 }
 
+private suspend fun focusCameraOnVisit(
+    latitude: Double,
+    longitude: Double,
+    cameraPositionState: CameraPositionState
+) {
+    withContext(Dispatchers.Main) {
+        cameraPositionState.animate(
+            update = CameraUpdateFactory.newLatLngZoom(LatLng(latitude, longitude), 16f),
+            durationMs = 600
+        )
+    }
+}
+
 private fun thinningDistanceForRange(range: TimelineRange): Double {
     return when (range) {
         TimelineRange.Today -> 15.0
@@ -207,6 +289,9 @@ private fun thinningDistanceForRange(range: TimelineRange): Double {
         TimelineRange.ThisWeek -> 35.0
         TimelineRange.ThisMonth -> 60.0
         TimelineRange.ThisYear -> 120.0
+        TimelineRange.Last24Hours -> 20.0
+        TimelineRange.Last7Days -> 40.0
+        TimelineRange.Last30Days -> 75.0
         TimelineRange.Lifetime -> 180.0
         is TimelineRange.Custom -> 50.0
     }

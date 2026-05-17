@@ -38,6 +38,17 @@ interface LocationPointDao {
     @Query("DELETE FROM location_points WHERE recordedAtEpochMillis < :olderThanEpochMillis")
     suspend fun deletePointsOlderThan(olderThanEpochMillis: Long): Int
 
+    @Query(
+        """
+        DELETE FROM location_points
+        WHERE recordedAtEpochMillis BETWEEN :startEpochMillis AND :endEpochMillis
+        """
+    )
+    suspend fun deletePointsBetween(
+        startEpochMillis: Long,
+        endEpochMillis: Long
+    ): Int
+
     @Query("DELETE FROM location_points")
     suspend fun deleteAllPoints(): Int
 }

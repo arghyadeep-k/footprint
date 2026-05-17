@@ -45,6 +45,11 @@ class LocationRepository(
         return locationPointDao.deletePointsOlderThan(olderThanEpochMillis)
     }
 
+    suspend fun deletePointsBetween(startEpochMillis: Long, endEpochMillis: Long): Int {
+        val (start, end) = LocationPointHelpers.normalizeTimeWindow(startEpochMillis, endEpochMillis)
+        return locationPointDao.deletePointsBetween(start, end)
+    }
+
     suspend fun deleteAllPoints(): Int {
         return locationPointDao.deleteAllPoints()
     }

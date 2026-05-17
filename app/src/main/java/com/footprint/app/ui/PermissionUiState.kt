@@ -5,16 +5,17 @@ import android.os.Build
 data class PermissionUiState(
     val foregroundStatus: ForegroundPermissionStatus,
     val isBackgroundGranted: Boolean,
-    val isNotificationGranted: Boolean
+    val isNotificationGranted: Boolean,
+    val sdkInt: Int = Build.VERSION.SDK_INT
 ) {
     val isForegroundGranted: Boolean
         get() = foregroundStatus == ForegroundPermissionStatus.GRANTED
 
     val requiresNotificationPermission: Boolean
-        get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+        get() = sdkInt >= Build.VERSION_CODES.TIRAMISU
 
     val requiresBackgroundPermission: Boolean
-        get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+        get() = sdkInt >= Build.VERSION_CODES.Q
 
     val allRequiredPermissionsReady: Boolean
         get() = isForegroundGranted &&
@@ -37,5 +38,30 @@ object PermissionUiTextMapper {
             ForegroundPermissionStatus.DENIED -> "Foreground location denied"
             ForegroundPermissionStatus.PERMANENTLY_DENIED -> "Foreground location permanently denied"
         }
+    }
+}
+
+object PermissionStateResolver {
+    fun resolve(
+        sdkInt: Int,
+        foregroundPermissionRequested: Boolean,
+        hasForegroundPermission: Boolean,
+        shouldShowForegroundRationale: Boolean,
+        hasBackgroundPermission: Boolean,
+        hasNotificationPermission: Boolean
+    ): PermissionUiState {
+        val foregroundStatus = when {
+            hasForegroundPermission -> ForegroundPermissionStatus.GRANTED
+            !foregroundPermissionRequested -> ForegroundPermissionStatus.NOT_REQUESTED
+            shouldShowForegroundRationale -> ForegroundPermissionStatus.DENIED
+            else -> ForegroundPermissionStatus.PERMANENTLY_DENIED
+        }
+
+        return PermissionUiState(
+            foregroundStatus = foregroundStatus,
+            isBackgroundGranted = hasBackgroundPermission,
+            isNotificationGranted = hasNotificationPermission,
+            sdkInt = sdkInt
+        )
     }
 }

@@ -24,6 +24,9 @@ class TimelineCalculator(
             TimelineRange.ThisWeek -> thisWeekWindow(now)
             TimelineRange.ThisMonth -> thisMonthWindow(now)
             TimelineRange.ThisYear -> thisYearWindow(now)
+            TimelineRange.Last24Hours -> rollingWindow(now, 24L * 60 * 60 * 1000)
+            TimelineRange.Last7Days -> rollingWindow(now, 7L * 24 * 60 * 60 * 1000)
+            TimelineRange.Last30Days -> rollingWindow(now, 30L * 24 * 60 * 60 * 1000)
             TimelineRange.Lifetime -> TimelineWindow(
                 startEpochMillis = Long.MIN_VALUE,
                 endEpochMillis = now.toInstant().toEpochMilli()
@@ -71,6 +74,14 @@ class TimelineCalculator(
         } else {
             TimelineWindow(endEpochMillis, startEpochMillis)
         }
+    }
+
+    private fun rollingWindow(nowInZone: ZonedDateTime, durationMillis: Long): TimelineWindow {
+        val end = nowInZone.toInstant().toEpochMilli()
+        return TimelineWindow(
+            startEpochMillis = end - durationMillis,
+            endEpochMillis = end
+        )
     }
 
     companion object {

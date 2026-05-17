@@ -50,8 +50,11 @@ sdk.dir=/absolute/path/to/your/android-sdk
 export JAVA_HOME=/path/to/jdk-21
 ```
 
-4. The repo currently sets `org.gradle.java.home` in `gradle.properties` for this environment.
-   If your machine uses a different JDK path, update that value locally as needed.
+4. Optional: if `JAVA_HOME` is not picked up correctly, set Gradle Java home locally (machine-specific) in your user Gradle properties (`~/.gradle/gradle.properties`):
+
+```properties
+org.gradle.java.home=/absolute/path/to/jdk-21
+```
 
 Note: `local.properties` is already ignored by `.gitignore`.
 
@@ -110,6 +113,11 @@ MAPS_API_KEY=your_key_here
 
 3. Do not commit real API keys to the repository.
 
+Current implementation detail:
+
+- The app does not yet wire `MAPS_API_KEY` manifest placeholders in source.
+- Add the manifest metadata + local secret before production map rollout.
+
 ## Permission Expectations
 
 Footprint expects these permissions for full tracking behavior:
@@ -129,6 +137,13 @@ Permission flow is staged in-app:
 1. Foreground location request first.
 2. Background location guidance after foreground grant.
 3. Notification permission requested separately on Android 13+.
+
+## Local-First Privacy Expectations
+
+- Location history is stored locally on the device (Room database).
+- Export actions (CSV/GeoJSON) are user-initiated via Android document picker.
+- Import actions (CSV restore) are user-initiated and local-only.
+- No cloud sync is implemented in the current app.
 
 ## Database and Migration Policy
 

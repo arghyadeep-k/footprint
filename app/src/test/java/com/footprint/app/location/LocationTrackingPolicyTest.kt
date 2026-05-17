@@ -87,6 +87,32 @@ class LocationTrackingPolicyTest {
     }
 
     @Test
+    fun resolveEffectiveMode_doesNotUseActiveWithoutExplicitTripStart() {
+        val mode = LocationTrackingPolicy.resolveEffectiveMode(
+            preferredMode = TrackingMode.BALANCED,
+            isMovingMeaningfully = true,
+            activeTripRequested = false,
+            activeTripStartedAtEpochMillis = null,
+            nowEpochMillis = 1_000L
+        )
+
+        assertEquals(TrackingMode.BALANCED, mode)
+    }
+
+    @Test
+    fun resolveEffectiveMode_fallsBackWhenActiveTripStoppedExplicitly() {
+        val mode = LocationTrackingPolicy.resolveEffectiveMode(
+            preferredMode = TrackingMode.LOW_POWER,
+            isMovingMeaningfully = false,
+            activeTripRequested = false,
+            activeTripStartedAtEpochMillis = 1_000L,
+            nowEpochMillis = 1_000L + 10_000L
+        )
+
+        assertEquals(TrackingMode.LOW_POWER, mode)
+    }
+
+    @Test
     fun resolveEffectiveMode_fallsBackAfterActiveTimeout() {
         val mode = LocationTrackingPolicy.resolveEffectiveMode(
             preferredMode = TrackingMode.BALANCED,
@@ -100,6 +126,32 @@ class LocationTrackingPolicyTest {
     }
 
     @Test
+    fun resolveEffectiveMode_afterActiveTimeout_usesNonActiveAdaptiveFallbackWhenMoving() {
+        val mode = LocationTrackingPolicy.resolveEffectiveMode(
+            preferredMode = TrackingMode.BALANCED,
+            isMovingMeaningfully = true,
+            activeTripRequested = true,
+            activeTripStartedAtEpochMillis = 1_000L,
+            nowEpochMillis = 1_000L + LocationTrackingPolicy.DEFAULT_ACTIVE_TRIP_TIMEOUT_MILLIS
+        )
+
+        assertEquals(TrackingMode.BALANCED, mode)
+    }
+
+    @Test
+    fun resolveEffectiveMode_afterActiveTimeout_neverReturnsActive() {
+        val mode = LocationTrackingPolicy.resolveEffectiveMode(
+            preferredMode = TrackingMode.LOW_POWER,
+            isMovingMeaningfully = true,
+            activeTripRequested = true,
+            activeTripStartedAtEpochMillis = 1_000L,
+            nowEpochMillis = 1_000L + LocationTrackingPolicy.DEFAULT_ACTIVE_TRIP_TIMEOUT_MILLIS + 1L
+        )
+
+        assertTrue(mode != TrackingMode.ACTIVE)
+    }
+
+    @Test
     fun isActiveTripExpired_returnsTrueAtOrBeyondTimeout() {
         assertTrue(
             LocationTrackingPolicy.isActiveTripExpired(
@@ -107,6 +159,27 @@ class LocationTrackingPolicyTest {
                 nowEpochMillis = 10L + LocationTrackingPolicy.DEFAULT_ACTIVE_TRIP_TIMEOUT_MILLIS
             )
         )
+    }
+
+    @Test
+    fun resolveEffectiveMode_keepsPreferredAndActiveOverrideSeparate() {
+        val withActiveOverride = LocationTrackingPolicy.resolveEffectiveMode(
+            preferredMode = TrackingMode.LOW_POWER,
+            isMovingMeaningfully = false,
+            activeTripRequested = true,
+            activeTripStartedAtEpochMillis = 10L,
+            nowEpochMillis = 10L + 60_000L
+        )
+        val withoutActiveOverride = LocationTrackingPolicy.resolveEffectiveMode(
+            preferredMode = TrackingMode.LOW_POWER,
+            isMovingMeaningfully = false,
+            activeTripRequested = false,
+            activeTripStartedAtEpochMillis = null,
+            nowEpochMillis = 10L + 60_000L
+        )
+
+        assertEquals(TrackingMode.ACTIVE, withActiveOverride)
+        assertEquals(TrackingMode.LOW_POWER, withoutActiveOverride)
     }
 
     private fun sample(

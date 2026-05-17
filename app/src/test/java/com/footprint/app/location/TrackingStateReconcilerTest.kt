@@ -73,4 +73,22 @@ class TrackingStateReconcilerTest {
 
         assertEquals(TrackingState.Status.STOPPED, reconciled.status)
     }
+
+    @Test
+    fun persistedError_andNoClearStaleEvidence_remainsError() {
+        val persisted = TrackingState(
+            status = TrackingState.Status.ERROR,
+            effectiveMode = null,
+            errorMessage = "Previous runtime failure"
+        )
+
+        val reconciled = TrackingStateReconciler.resolveStartupState(
+            persistedState = persisted,
+            isServiceRunning = false,
+            hasRequiredPermissions = true
+        )
+
+        assertEquals(TrackingState.Status.ERROR, reconciled.status)
+        assertEquals("Previous runtime failure", reconciled.errorMessage)
+    }
 }

@@ -31,7 +31,7 @@ fun SettingsScreen(
         Text("Tracking Settings", style = MaterialTheme.typography.headlineMedium)
 
         Text(
-            text = "Choose your default background tracking mode. Active trip tracking is started separately from Home and uses higher battery.",
+            text = "Choose your default background tracking mode. Active trip tracking is temporary, higher-accuracy, and higher battery use. Start it only from Home for intentional trips.",
             style = MaterialTheme.typography.bodyMedium
         )
 
@@ -52,7 +52,7 @@ fun SettingsScreen(
 
         Card(modifier = Modifier.fillMaxWidth()) {
             Text(
-                text = "Active trip is temporary high-accuracy tracking for intentional trips and automatically times out after about 2 hours.",
+                text = "Active trip is not saved as your default mode. It is a temporary intentional-trip override and auto-times out after about 2 hours.",
                 modifier = Modifier.padding(16.dp),
                 style = MaterialTheme.typography.bodySmall
             )

@@ -3,19 +3,30 @@ package com.footprint.app.timeline
 import com.footprint.app.data.local.LocationPoint
 
 object VisitDetector {
-    private const val STATIONARY_RADIUS_METERS = 100.0
-    private const val MIN_VISIT_DURATION_MILLIS = 10 * 60 * 1000L
+    data class Config(
+        val stationaryRadiusMeters: Double = 100.0,
+        val minimumVisitDurationMillis: Long = 10 * 60 * 1000L,
+        val minimumVisitPoints: Int = 3,
+        val driftToleranceWindowMillis: Long = 2 * 60 * 1000L,
+        val mergeNearbyRadiusMeters: Double = 120.0,
+        val mergeGapToleranceMillis: Long = 3 * 60 * 1000L
+    )
 
-    fun detectVisits(points: List<LocationPoint>): List<VisitSegment> {
+    fun detectVisits(
+        points: List<LocationPoint>,
+        config: Config = Config()
+    ): List<VisitSegment> {
         if (points.size < 2) return emptyList()
 
         val sorted = points.sortedBy { it.recordedAtEpochMillis }
         val visits = mutableListOf<VisitSegment>()
 
         var clusterStart = 0
+        var clusterEnd = 0
         var sumLat = sorted[0].latitude
         var sumLon = sorted[0].longitude
         var clusterCount = 1
+        var driftStartIndex: Int? = null
 
         for (i in 1 until sorted.size) {
             val candidate = sorted[i]
@@ -28,37 +39,51 @@ object VisitDetector {
                 lon2 = candidate.longitude
             )
 
-            if (distance <= STATIONARY_RADIUS_METERS) {
+            if (distance <= config.stationaryRadiusMeters) {
+                driftStartIndex = null
                 sumLat += candidate.latitude
                 sumLon += candidate.longitude
                 clusterCount += 1
+                clusterEnd = i
             } else {
-                finalizeCluster(
-                    points = sorted,
-                    startIndex = clusterStart,
-                    endIndex = i - 1,
-                    sumLat = sumLat,
-                    sumLon = sumLon,
-                    count = clusterCount
-                )?.let(visits::add)
+                if (driftStartIndex == null) {
+                    driftStartIndex = i
+                }
+                val driftDuration = candidate.recordedAtEpochMillis -
+                    sorted[driftStartIndex].recordedAtEpochMillis
 
-                clusterStart = i
-                sumLat = candidate.latitude
-                sumLon = candidate.longitude
-                clusterCount = 1
+                if (driftDuration > config.driftToleranceWindowMillis) {
+                    finalizeCluster(
+                        points = sorted,
+                        startIndex = clusterStart,
+                        endIndex = clusterEnd,
+                        sumLat = sumLat,
+                        sumLon = sumLon,
+                        count = clusterCount,
+                        config = config
+                    )?.let(visits::add)
+
+                    clusterStart = i
+                    clusterEnd = i
+                    sumLat = candidate.latitude
+                    sumLon = candidate.longitude
+                    clusterCount = 1
+                    driftStartIndex = null
+                }
             }
         }
 
         finalizeCluster(
             points = sorted,
             startIndex = clusterStart,
-            endIndex = sorted.lastIndex,
+            endIndex = clusterEnd,
             sumLat = sumLat,
             sumLon = sumLon,
-            count = clusterCount
+            count = clusterCount,
+            config = config
         )?.let(visits::add)
 
-        return visits
+        return mergeNearbyVisits(visits, config)
     }
 
     private fun finalizeCluster(
@@ -67,14 +92,15 @@ object VisitDetector {
         endIndex: Int,
         sumLat: Double,
         sumLon: Double,
-        count: Int
+        count: Int,
+        config: Config
     ): VisitSegment? {
-        if (count <= 1) return null
+        if (count < config.minimumVisitPoints) return null
 
         val arrival = points[startIndex].recordedAtEpochMillis
         val departure = points[endIndex].recordedAtEpochMillis
         val duration = departure - arrival
-        if (duration < MIN_VISIT_DURATION_MILLIS) return null
+        if (duration < config.minimumVisitDurationMillis) return null
 
         return VisitSegment(
             latitude = sumLat / count,
@@ -83,6 +109,54 @@ object VisitDetector {
             departureEpochMillis = departure,
             durationMillis = duration,
             pointCount = count
+        )
+    }
+
+    private fun mergeNearbyVisits(
+        visits: List<VisitSegment>,
+        config: Config
+    ): List<VisitSegment> {
+        if (visits.size < 2) return visits
+        val merged = mutableListOf<VisitSegment>()
+        var current = visits.first()
+
+        for (i in 1 until visits.size) {
+            val next = visits[i]
+            val gapMillis = next.arrivalEpochMillis - current.departureEpochMillis
+            val distance = DistanceCalculator.haversineMeters(
+                lat1 = current.latitude,
+                lon1 = current.longitude,
+                lat2 = next.latitude,
+                lon2 = next.longitude
+            )
+            val shouldMerge = gapMillis <= config.mergeGapToleranceMillis &&
+                distance <= config.mergeNearbyRadiusMeters
+
+            current = if (shouldMerge) {
+                merge(current, next)
+            } else {
+                merged += current
+                next
+            }
+        }
+
+        merged += current
+        return merged
+    }
+
+    private fun merge(first: VisitSegment, second: VisitSegment): VisitSegment {
+        val totalCount = first.pointCount + second.pointCount
+        val mergedLat = ((first.latitude * first.pointCount) + (second.latitude * second.pointCount)) / totalCount
+        val mergedLon = ((first.longitude * first.pointCount) + (second.longitude * second.pointCount)) / totalCount
+        val arrival = minOf(first.arrivalEpochMillis, second.arrivalEpochMillis)
+        val departure = maxOf(first.departureEpochMillis, second.departureEpochMillis)
+        return VisitSegment(
+            latitude = mergedLat,
+            longitude = mergedLon,
+            arrivalEpochMillis = arrival,
+            departureEpochMillis = departure,
+            durationMillis = departure - arrival,
+            pointCount = totalCount
         )
     }
 }

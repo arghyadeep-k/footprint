@@ -96,6 +96,7 @@ class LocationTrackingService : Service() {
                                 isActiveTripRunning = activeTripRequested && currentRequestMode == TrackingMode.ACTIVE
                             )
                         )
+                        updateNotificationIfTracking()
                     }
                 }
             }
@@ -155,6 +156,8 @@ class LocationTrackingService : Service() {
         if (isRequestingUpdates) {
             val fallbackMode = resolveEffectiveMode(isMovingMeaningfully = false)
             recreateLocationUpdates(fallbackMode)
+        } else {
+            updateNotificationIfTracking()
         }
     }
 
@@ -175,6 +178,7 @@ class LocationTrackingService : Service() {
                     isActiveTripRunning = activeTripRequested && mode == TrackingMode.ACTIVE
                 )
             )
+            updateNotificationIfTracking()
         } catch (_: SecurityException) {
             reportUnrecoverableError("Location permission unavailable")
             stopTrackingAndSelf()
@@ -296,6 +300,7 @@ class LocationTrackingService : Service() {
             serviceScope.launch {
                 activeTripSessionStore.stopActiveTrip()
             }
+            updateNotificationIfTracking()
         }
     }
 
@@ -312,11 +317,39 @@ class LocationTrackingService : Service() {
 
         return NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("Footprint is recording")
-            .setContentText("Footprint is recording travel history.")
+            .setContentTitle(notificationTitle())
+            .setContentText(notificationBody())
             .setOngoing(true)
             .setContentIntent(pendingIntent)
             .build()
+    }
+
+    private fun notificationTitle(): String {
+        return if (currentRequestMode == TrackingMode.ACTIVE && activeTripRequested) {
+            "Footprint active trip is running"
+        } else {
+            "Footprint is recording"
+        }
+    }
+
+    private fun notificationBody(): String {
+        return if (currentRequestMode == TrackingMode.ACTIVE && activeTripRequested) {
+            val remaining = ActiveTripUiMapper.remainingLabel(
+                ActiveTripUiMapper.remainingMillis(
+                    startedAtEpochMillis = activeTripStartedAtEpochMillis,
+                    nowEpochMillis = System.currentTimeMillis()
+                )
+            ) ?: "about 2h remaining"
+            "High-accuracy trip tracking is on ($remaining). Auto-returns after about 2 hours."
+        } else {
+            "Footprint is recording travel history."
+        }
+    }
+
+    private fun updateNotificationIfTracking() {
+        if (!isRequestingUpdates) return
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+        manager.notify(NOTIFICATION_ID, buildNotification())
     }
 
     private fun createNotificationChannelIfNeeded() {

@@ -28,4 +28,12 @@ class PermissionUiTextMapperTest {
             PermissionUiTextMapper.foregroundStatusLabel(ForegroundPermissionStatus.PERMANENTLY_DENIED)
         )
     }
+
+    @Test
+    fun foregroundStatusLabel_mapsGranted() {
+        assertEquals(
+            "Foreground location granted",
+            PermissionUiTextMapper.foregroundStatusLabel(ForegroundPermissionStatus.GRANTED)
+        )
+    }
 }

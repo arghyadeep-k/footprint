@@ -1,6 +1,7 @@
 package com.footprint.app.ui
 
 import android.app.DatePickerDialog
+import android.app.TimePickerDialog
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.horizontalScroll
@@ -24,11 +25,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.footprint.app.data.export.TimelineExportFormatter
 import com.footprint.app.location.TrackingStateUiMapper
+import com.footprint.app.location.ActiveTripUiMapper
 import com.footprint.app.map.MapScreen
 import com.footprint.app.timeline.TimelineDataUiState
 import com.footprint.app.timeline.VisitSegment
+import com.footprint.app.timeline.VisitSelectionMapper
 import com.footprint.app.ui.viewmodel.HomeUiState
 import com.footprint.app.ui.viewmodel.HomeViewModel
 import com.footprint.app.ui.viewmodel.TimelineOption
@@ -51,7 +53,10 @@ fun HomeScreen(
     onOpenSettings: () -> Unit,
     onOpenPrivacy: () -> Unit,
     onManagePermissions: () -> Unit,
-    onMarkExportResult: (String?) -> Unit
+    onExportCsv: () -> String,
+    onExportGeoJson: () -> String,
+    onMarkExportResult: (String?) -> Unit,
+    onVisitSelected: (Int) -> Unit
 ) {
     val context = LocalContext.current
 
@@ -63,7 +68,7 @@ fun HomeScreen(
             return@rememberLauncherForActivityResult
         }
         runCatching {
-            val csv = TimelineExportFormatter.toCsv(uiState.points)
+            val csv = onExportCsv()
             context.contentResolver.openOutputStream(uri)?.use { stream ->
                 stream.write(csv.toByteArray(Charsets.UTF_8))
             }
@@ -82,7 +87,7 @@ fun HomeScreen(
             return@rememberLauncherForActivityResult
         }
         runCatching {
-            val geoJson = TimelineExportFormatter.toGeoJson(uiState.points)
+            val geoJson = onExportGeoJson()
             context.contentResolver.openOutputStream(uri)?.use { stream ->
                 stream.write(geoJson.toByteArray(Charsets.UTF_8))
             }
@@ -140,6 +145,12 @@ fun HomeScreen(
                     selected = uiState.selectedOption,
                     onSelect = onTimelineOptionSelected
                 )
+                OutlinedButton(
+                    onClick = onRetryLoad,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Refresh timeline")
+                }
 
                 if (uiState.selectedOption == TimelineOption.CUSTOM) {
                     CustomRangePicker(
@@ -165,9 +176,20 @@ fun HomeScreen(
                 Text("Stats", style = MaterialTheme.typography.titleMedium)
                 when (val timelineState = uiState.timelineState) {
                     TimelineDataUiState.Loading -> {
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            CircularProgressIndicator()
-                            Text("Loading timeline stats...")
+                        if (uiState.points.isNotEmpty()) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                CircularProgressIndicator()
+                                Text("Refreshing timeline data…")
+                            }
+                            Text("Saved points: ${uiState.stats.pointCount}")
+                            Text("Approx distance: ${uiState.stats.distanceKmLabel}")
+                            Text("First recorded: ${uiState.stats.firstRecordedLabel}")
+                            Text("Last recorded: ${uiState.stats.lastRecordedLabel}")
+                        } else {
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                CircularProgressIndicator()
+                                Text("Loading timeline stats...")
+                            }
                         }
                     }
 
@@ -221,14 +243,30 @@ fun HomeScreen(
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(
                 modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("Quick Summary", style = MaterialTheme.typography.titleMedium)
+                SummaryStatRow("Distance per day", uiState.summaryMetrics.distancePerDayLabel)
+                SummaryStatRow("Points per day", uiState.summaryMetrics.pointsPerDayLabel)
+                SummaryStatRow("Detected visits", uiState.summaryMetrics.visitCount.toString())
+                SummaryStatRow("Average daily distance", uiState.summaryMetrics.averageDailyDistanceLabel)
+            }
+        }
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text("Map", style = MaterialTheme.typography.titleMedium)
                 MapScreen(
                     timelineState = uiState.timelineState,
+                    points = uiState.points,
                     visitSegments = uiState.visits,
+                    selectedVisitIndex = uiState.selectedVisitIndex,
                     selectedRange = uiState.selectedRange,
                     onRetry = onRetryLoad,
+                    onVisitSelected = onVisitSelected,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(260.dp)
@@ -237,7 +275,18 @@ fun HomeScreen(
         }
 
         if (uiState.timelineState is TimelineDataUiState.Success || uiState.timelineState is TimelineDataUiState.Empty) {
-            PlacesVisitedList(visits = uiState.visits)
+            val selectedVisit = VisitSelectionMapper.selectedVisit(
+                visits = uiState.visits,
+                selectedIndex = uiState.selectedVisitIndex
+            )
+            selectedVisit?.let { visit ->
+                SelectedVisitCard(visit = visit)
+            }
+            PlacesVisitedList(
+                visits = uiState.visits,
+                selectedVisitIndex = uiState.selectedVisitIndex,
+                onSelectVisit = onVisitSelected
+            )
         }
 
         Card(modifier = Modifier.fillMaxWidth()) {
@@ -252,12 +301,23 @@ fun HomeScreen(
                 )
                 Text(
                     text = if (uiState.trackingState.isActiveTripRunning) {
-                        "Active trip tracking is running (high battery use)."
+                        "Active trip tracking is running for an intentional trip. It uses higher accuracy and higher battery."
                     } else if (uiState.isActiveTripRequested) {
-                        "Active trip is armed and will run while tracking is active."
+                        "Active trip is armed and will run while tracking is active. This mode is temporary and higher battery."
                     } else {
-                        "Active trip is off."
+                        "Active trip is off. Use it only for intentional trips that need higher accuracy."
                     },
+                    style = MaterialTheme.typography.bodySmall
+                )
+                if (uiState.isActiveTripRequested || uiState.trackingState.isActiveTripRunning) {
+                    Text(
+                        text = ActiveTripUiMapper.remainingLabel(uiState.activeTripRemainingMillis)
+                            ?: "Remaining time unavailable",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                Text(
+                    text = ActiveTripUiMapper.timeoutPolicyLabel(),
                     style = MaterialTheme.typography.bodySmall
                 )
                 OutlinedButton(
@@ -323,7 +383,31 @@ fun HomeScreen(
 }
 
 @Composable
-private fun PlacesVisitedList(visits: List<VisitSegment>) {
+private fun SelectedVisitCard(visit: VisitSegment) {
+    val formatter = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text("Selected Place", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Lat/Lng: ${"%.5f".format(Locale.getDefault(), visit.latitude)}, ${"%.5f".format(Locale.getDefault(), visit.longitude)}"
+            )
+            Text("Arrival: ${formatter.format(Date(visit.arrivalEpochMillis))}")
+            Text("Departure: ${formatter.format(Date(visit.departureEpochMillis))}")
+            Text("Duration: ${formatDuration(visit.durationMillis)}")
+            Text("Points in cluster: ${visit.pointCount}")
+        }
+    }
+}
+
+@Composable
+private fun PlacesVisitedList(
+    visits: List<VisitSegment>,
+    selectedVisitIndex: Int?,
+    onSelectVisit: (Int) -> Unit
+) {
     val formatter = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
 
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -337,13 +421,26 @@ private fun PlacesVisitedList(visits: List<VisitSegment>) {
                 Text("No stationary visits detected for this timeline yet.")
             } else {
                 visits.forEachIndexed { index, visit ->
-                    Text("Place ${index + 1}")
-                    Text(
-                        "Lat/Lng: ${"%.5f".format(Locale.getDefault(), visit.latitude)}, ${"%.5f".format(Locale.getDefault(), visit.longitude)}"
-                    )
-                    Text("Arrival: ${formatter.format(Date(visit.arrivalEpochMillis))}")
-                    Text("Departure: ${formatter.format(Date(visit.departureEpochMillis))}")
-                    Text("Duration: ${formatDuration(visit.durationMillis)}")
+                    OutlinedButton(
+                        onClick = { onSelectVisit(index) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                if (selectedVisitIndex == index) "Place ${index + 1} (Selected)" else "Place ${index + 1}"
+                            )
+                            Text(
+                                "Lat/Lng: ${"%.5f".format(Locale.getDefault(), visit.latitude)}, ${"%.5f".format(Locale.getDefault(), visit.longitude)}"
+                            )
+                            Text("Arrival: ${formatter.format(Date(visit.arrivalEpochMillis))}")
+                            Text("Departure: ${formatter.format(Date(visit.departureEpochMillis))}")
+                            Text("Duration: ${formatDuration(visit.durationMillis)}")
+                            Text("Points: ${visit.pointCount}")
+                        }
+                    }
                 }
             }
         }
@@ -360,6 +457,9 @@ private fun TimelineSelector(
         "This Week" to TimelineOption.THIS_WEEK,
         "This Month" to TimelineOption.THIS_MONTH,
         "This Year" to TimelineOption.THIS_YEAR,
+        "Last 24h" to TimelineOption.LAST_24_HOURS,
+        "Last 7d" to TimelineOption.LAST_7_DAYS,
+        "Last 30d" to TimelineOption.LAST_30_DAYS,
         "Lifetime" to TimelineOption.LIFETIME,
         "Custom" to TimelineOption.CUSTOM
     )
@@ -387,6 +487,7 @@ private fun CustomRangePicker(
     val context = LocalContext.current
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Custom start", style = MaterialTheme.typography.bodySmall)
         OutlinedButton(
             onClick = {
                 showDatePicker(
@@ -399,7 +500,21 @@ private fun CustomRangePicker(
         ) {
             Text("Start: ${formatDate(startMillis)}")
         }
+        OutlinedButton(
+            onClick = {
+                showTimePicker(
+                    context = context,
+                    initialMillis = startMillis
+                ) { hour, minute ->
+                    onStartChanged(updateTimeComponent(startMillis, hour, minute))
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Start time: ${formatTime(startMillis)}")
+        }
 
+        Text("Custom end", style = MaterialTheme.typography.bodySmall)
         OutlinedButton(
             onClick = {
                 showDatePicker(
@@ -411,6 +526,19 @@ private fun CustomRangePicker(
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("End: ${formatDate(endMillis)}")
+        }
+        OutlinedButton(
+            onClick = {
+                showTimePicker(
+                    context = context,
+                    initialMillis = endMillis
+                ) { hour, minute ->
+                    onEndChanged(updateTimeComponent(endMillis, hour, minute))
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("End time: ${formatTime(endMillis)}")
         }
     }
 }
@@ -424,12 +552,13 @@ private fun showDatePicker(
     DatePickerDialog(
         context,
         { _, year, month, dayOfMonth ->
+            val existing = Calendar.getInstance().apply { timeInMillis = initialMillis }
             val selected = Calendar.getInstance().apply {
                 set(Calendar.YEAR, year)
                 set(Calendar.MONTH, month)
                 set(Calendar.DAY_OF_MONTH, dayOfMonth)
-                set(Calendar.HOUR_OF_DAY, 0)
-                set(Calendar.MINUTE, 0)
+                set(Calendar.HOUR_OF_DAY, existing.get(Calendar.HOUR_OF_DAY))
+                set(Calendar.MINUTE, existing.get(Calendar.MINUTE))
                 set(Calendar.SECOND, 0)
                 set(Calendar.MILLISECOND, 0)
             }.timeInMillis
@@ -441,8 +570,44 @@ private fun showDatePicker(
     ).show()
 }
 
+private fun showTimePicker(
+    context: android.content.Context,
+    initialMillis: Long,
+    onSelected: (hourOfDay: Int, minute: Int) -> Unit
+) {
+    val calendar = Calendar.getInstance().apply { timeInMillis = initialMillis }
+    TimePickerDialog(
+        context,
+        { _, hourOfDay, minute ->
+            onSelected(hourOfDay, minute)
+        },
+        calendar.get(Calendar.HOUR_OF_DAY),
+        calendar.get(Calendar.MINUTE),
+        true
+    ).show()
+}
+
+private fun updateTimeComponent(
+    baseEpochMillis: Long,
+    hourOfDay: Int,
+    minute: Int
+): Long {
+    return Calendar.getInstance().apply {
+        timeInMillis = baseEpochMillis
+        set(Calendar.HOUR_OF_DAY, hourOfDay)
+        set(Calendar.MINUTE, minute)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+}
+
 private fun formatDate(epochMillis: Long): String {
     val formatter = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+    return formatter.format(Date(epochMillis))
+}
+
+private fun formatTime(epochMillis: Long): String {
+    val formatter = SimpleDateFormat("HH:mm", Locale.getDefault())
     return formatter.format(Date(epochMillis))
 }
 
@@ -454,5 +619,19 @@ private fun formatDuration(durationMillis: Long): String {
         "${hours}h ${remainingMinutes}m"
     } else {
         "${remainingMinutes}m"
+    }
+}
+
+@Composable
+private fun SummaryStatRow(
+    label: String,
+    value: String
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(label, style = MaterialTheme.typography.bodyMedium)
+        Text(value, style = MaterialTheme.typography.bodySmall)
     }
 }

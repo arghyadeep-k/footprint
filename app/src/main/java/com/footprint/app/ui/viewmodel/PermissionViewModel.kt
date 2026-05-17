@@ -8,6 +8,7 @@ import androidx.activity.ComponentActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import com.footprint.app.ui.ForegroundPermissionStatus
+import com.footprint.app.ui.PermissionStateResolver
 import com.footprint.app.ui.PermissionUiState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -35,16 +36,17 @@ class PermissionViewModel : ViewModel() {
 
         val foregroundStatus = when {
             hasForeground -> ForegroundPermissionStatus.GRANTED
-            !foregroundPermissionRequested -> ForegroundPermissionStatus.NOT_REQUESTED
-            showRationale -> ForegroundPermissionStatus.DENIED
-            else -> ForegroundPermissionStatus.PERMANENTLY_DENIED
-        }
+            else -> ForegroundPermissionStatus.NOT_REQUESTED
+        } // retained for readability of inputs; final status resolved below
 
         _permissionState.update {
-            it.copy(
-                foregroundStatus = foregroundStatus,
-                isBackgroundGranted = context.hasBackgroundLocationPermission(),
-                isNotificationGranted = context.hasNotificationPermission()
+            PermissionStateResolver.resolve(
+                sdkInt = Build.VERSION.SDK_INT,
+                foregroundPermissionRequested = foregroundPermissionRequested,
+                hasForegroundPermission = foregroundStatus == ForegroundPermissionStatus.GRANTED,
+                shouldShowForegroundRationale = showRationale,
+                hasBackgroundPermission = context.hasBackgroundLocationPermission(),
+                hasNotificationPermission = context.hasNotificationPermission()
             )
         }
     }

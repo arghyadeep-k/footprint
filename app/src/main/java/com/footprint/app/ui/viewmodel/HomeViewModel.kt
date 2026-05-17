@@ -11,12 +11,16 @@ import com.footprint.app.data.local.LocationPoint
 import com.footprint.app.location.TrackingController
 import com.footprint.app.location.TrackingMode
 import com.footprint.app.location.TrackingState
+import com.footprint.app.location.ActiveTripUiMapper
 import com.footprint.app.timeline.DistanceCalculator
 import com.footprint.app.timeline.TimelineDataUiState
 import com.footprint.app.timeline.TimelineDataUiStateFactory
 import com.footprint.app.timeline.TimelineRange
+import com.footprint.app.timeline.TimelineSummaryCalculator
+import com.footprint.app.timeline.TimelineSummaryMetrics
 import com.footprint.app.timeline.VisitDetector
 import com.footprint.app.timeline.VisitSegment
+import com.footprint.app.timeline.VisitSelectionMapper
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,6 +36,9 @@ enum class TimelineOption {
     THIS_WEEK,
     THIS_MONTH,
     THIS_YEAR,
+    LAST_24_HOURS,
+    LAST_7_DAYS,
+    LAST_30_DAYS,
     LIFETIME,
     CUSTOM
 }
@@ -49,6 +56,8 @@ data class HomeUiState(
     val selectedTrackingMode: TrackingMode = TrackingMode.BALANCED,
     val trackingState: TrackingState = TrackingState.stopped(),
     val isActiveTripRequested: Boolean = false,
+    val activeTripStartedAtEpochMillis: Long? = null,
+    val activeTripRemainingMillis: Long? = null,
     val canStartTracking: Boolean = false,
     val selectedOption: TimelineOption = TimelineOption.TODAY,
     val customStartMillis: Long = 0L,
@@ -57,7 +66,14 @@ data class HomeUiState(
     val timelineState: TimelineDataUiState = TimelineDataUiState.Loading,
     val points: List<LocationPoint> = emptyList(),
     val visits: List<VisitSegment> = emptyList(),
+    val selectedVisitIndex: Int? = null,
     val stats: TimelineStatsUi = TimelineStatsUi(),
+    val summaryMetrics: TimelineSummaryMetrics = TimelineSummaryMetrics(
+        distancePerDayKm = 0.0,
+        pointsPerDay = 0.0,
+        visitCount = 0,
+        averageDailyDistanceKm = null
+    ),
     val exportMessage: String? = null,
     val dataRefreshKey: Int = 0
 )
@@ -95,13 +111,19 @@ class HomeViewModel(
                 trackingRuntimeStateStore.trackingStateFlow,
                 activeTripSessionStore.sessionFlow
             ) { preferredMode, trackingState, activeTrip ->
-                Triple(preferredMode, trackingState, activeTrip.isActive)
-            }.collect { (preferredMode, trackingState, isActiveTripRequested) ->
+                Triple(preferredMode, trackingState, activeTrip)
+            }.collect { (preferredMode, trackingState, activeTrip) ->
+                val now = System.currentTimeMillis()
                 _uiState.update {
                     it.copy(
                         selectedTrackingMode = preferredMode,
                         trackingState = trackingState,
-                        isActiveTripRequested = isActiveTripRequested
+                        isActiveTripRequested = activeTrip.isActive,
+                        activeTripStartedAtEpochMillis = activeTrip.startedAtEpochMillis,
+                        activeTripRemainingMillis = ActiveTripUiMapper.remainingMillis(
+                            startedAtEpochMillis = activeTrip.startedAtEpochMillis,
+                            nowEpochMillis = now
+                        )
                     )
                 }
             }
@@ -149,13 +171,33 @@ class HomeViewModel(
 
             val points = (state as? TimelineDataUiState.Success)?.points.orEmpty()
             _uiState.update {
+                val visits = VisitDetector.detectVisits(points)
                 it.copy(
                     timelineState = state,
                     points = points,
-                    visits = VisitDetector.detectVisits(points),
-                    stats = TimelineStatsUi.from(points)
+                    visits = visits,
+                    selectedVisitIndex = VisitSelectionMapper.normalizeSelection(
+                        selectedIndex = it.selectedVisitIndex,
+                        visitCount = visits.size
+                    ),
+                    stats = TimelineStatsUi.from(points),
+                    summaryMetrics = TimelineSummaryCalculator.calculate(
+                        points = points,
+                        visitCount = visits.size
+                    )
                 )
             }
+        }
+    }
+
+    fun onVisitSelected(index: Int) {
+        _uiState.update {
+            it.copy(
+                selectedVisitIndex = VisitSelectionMapper.normalizeSelection(
+                    selectedIndex = index,
+                    visitCount = it.visits.size
+                )
+            )
         }
     }
 
@@ -209,6 +251,9 @@ class HomeViewModel(
                 TimelineOption.THIS_WEEK -> TimelineRange.ThisWeek
                 TimelineOption.THIS_MONTH -> TimelineRange.ThisMonth
                 TimelineOption.THIS_YEAR -> TimelineRange.ThisYear
+                TimelineOption.LAST_24_HOURS -> TimelineRange.Last24Hours
+                TimelineOption.LAST_7_DAYS -> TimelineRange.Last7Days
+                TimelineOption.LAST_30_DAYS -> TimelineRange.Last30Days
                 TimelineOption.LIFETIME -> TimelineRange.Lifetime
                 TimelineOption.CUSTOM -> TimelineRange.Custom(customStartMillis, customEndMillis)
             }
@@ -221,6 +266,9 @@ class HomeViewModel(
                 TimelineRange.ThisWeek -> "This Week"
                 TimelineRange.ThisMonth -> "This Month"
                 TimelineRange.ThisYear -> "This Year"
+                TimelineRange.Last24Hours -> "Last 24 Hours"
+                TimelineRange.Last7Days -> "Last 7 Days"
+                TimelineRange.Last30Days -> "Last 30 Days"
                 TimelineRange.Lifetime -> "Lifetime"
                 is TimelineRange.Custom -> "Custom"
             }
@@ -233,6 +281,9 @@ class HomeViewModel(
                 TimelineRange.ThisWeek -> "this_week"
                 TimelineRange.ThisMonth -> "this_month"
                 TimelineRange.ThisYear -> "this_year"
+                TimelineRange.Last24Hours -> "last_24_hours"
+                TimelineRange.Last7Days -> "last_7_days"
+                TimelineRange.Last30Days -> "last_30_days"
                 TimelineRange.Lifetime -> "lifetime"
                 is TimelineRange.Custom -> "custom"
             }
